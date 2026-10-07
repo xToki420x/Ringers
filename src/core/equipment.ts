@@ -119,15 +119,15 @@ export interface FinishSpec {
 }
 
 export const FINISHES: Record<FinishId, FinishSpec> = {
-  forged: { id: 'forged', name: 'Raw Forged', color: '#8a8e93', metalness: 0.7, roughness: 0.42, clearcoat: 0, wear: 0 },
-  black: { id: 'black', name: 'Black Powder', color: '#17181a', metalness: 0.25, roughness: 0.42, clearcoat: 0.6, wear: 0.55 },
-  red: { id: 'red', name: 'Barn Red', color: '#a0151b', metalness: 0.2, roughness: 0.38, clearcoat: 0.7, wear: 0.5 },
-  blue: { id: 'blue', name: 'Royal Blue', color: '#1b3f9a', metalness: 0.2, roughness: 0.38, clearcoat: 0.7, wear: 0.5 },
-  green: { id: 'green', name: 'Field Green', color: '#1f6b34', metalness: 0.2, roughness: 0.4, clearcoat: 0.65, wear: 0.5 },
-  orange: { id: 'orange', name: 'Safety Orange', color: '#e0601a', metalness: 0.15, roughness: 0.4, clearcoat: 0.65, wear: 0.5 },
-  chrome: { id: 'chrome', name: 'Mirror Chrome', color: '#e8ebee', metalness: 1, roughness: 0.08, clearcoat: 0.3, wear: 0.15 },
-  copper: { id: 'copper', name: 'Copper Plate', color: '#c46a3a', metalness: 1, roughness: 0.28, clearcoat: 0.2, wear: 0.3 },
-  gold: { id: 'gold', name: 'Champion Gold', color: '#e3b34a', metalness: 1, roughness: 0.22, clearcoat: 0.4, wear: 0.2 },
+  forged: { id: 'forged', name: 'Polished Forged', color: '#b4b9bf', metalness: 1, roughness: 0.2, clearcoat: 0, wear: 0 },
+  black: { id: 'black', name: 'Gloss Black', color: '#0d0e10', metalness: 0.1, roughness: 0.3, clearcoat: 1, wear: 0.5 },
+  red: { id: 'red', name: 'Candy Red', color: '#b0121b', metalness: 0.15, roughness: 0.28, clearcoat: 1, wear: 0.45 },
+  blue: { id: 'blue', name: 'Royal Blue', color: '#1840a8', metalness: 0.15, roughness: 0.28, clearcoat: 1, wear: 0.45 },
+  green: { id: 'green', name: 'Field Green', color: '#16743a', metalness: 0.15, roughness: 0.3, clearcoat: 1, wear: 0.45 },
+  orange: { id: 'orange', name: 'Safety Orange', color: '#ec5f12', metalness: 0.1, roughness: 0.3, clearcoat: 1, wear: 0.45 },
+  chrome: { id: 'chrome', name: 'Mirror Chrome', color: '#f2f4f6', metalness: 1, roughness: 0.035, clearcoat: 0.5, wear: 0.12 },
+  copper: { id: 'copper', name: 'Copper Plate', color: '#d27a45', metalness: 1, roughness: 0.14, clearcoat: 0.4, wear: 0.25 },
+  gold: { id: 'gold', name: 'Champion Gold', color: '#f0c25a', metalness: 1, roughness: 0.1, clearcoat: 0.5, wear: 0.15 },
 };
 
 export interface BrandSpec {

@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { Grass } from './grass';
+import { BODY_MATS, type BodyMesh } from './humanBody';
 import { HALF_COURT } from '../core/constants';
 import type { TimeOfDay } from '../game/match';
 import { COURT_SPACING } from './court';
@@ -54,6 +56,7 @@ export class Environment {
   private lampHeads: THREE.Mesh;
   private flags: { mesh: THREE.Mesh; base: Float32Array; phase: number }[] = [];
   readonly crowd: Crowd;
+  readonly grass: Grass;
   readonly scoreboards: Scoreboard[] = [];
   lighting: Lighting = lightingFor('afternoon');
 
@@ -61,11 +64,18 @@ export class Environment {
     readonly scene: THREE.Scene,
     grass: MapSet,
     quality: Quality,
+    crowdBody: BodyMesh,
   ) {
     scene.add(this.group);
     // Sky.
     this.sky = new Sky();
     this.sky.scale.setScalar(900);
+    // Keep the sky's HDR radiance in a range the bloom pass leaves alone, so
+    // only true specular glints glow.
+    this.sky.material.fragmentShader = this.sky.material.fragmentShader.replace(
+      'gl_FragColor = vec4( texColor, 1.0 );',
+      'gl_FragColor = vec4( min( texColor, vec3( 2.2 ) ), 1.0 );',
+    );
     this.group.add(this.sky);
     const domeGeo = new THREE.SphereGeometry(880, 32, 16);
     const domeCols: number[] = [];
@@ -147,7 +157,9 @@ export class Environment {
       }
 
     this.buildTrees(quality);
-    this.crowd = new Crowd(this.group, quality);
+    this.crowd = new Crowd(this.group, quality, crowdBody);
+    this.grass = new Grass(quality);
+    this.group.add(this.grass.mesh);
     this.buildBannersAndFence();
     this.lampHeads = this.buildLightTowers();
     this.buildFlags();
@@ -158,58 +170,76 @@ export class Environment {
     }
   }
 
+  /** Leafy trees: branching trunks with crowns of alpha-cut leaf clusters. */
   private buildTrees(q: Quality) {
-    const trunkGeo = new THREE.CylinderGeometry(0.18, 0.28, 3.2, 7);
-    trunkGeo.translate(0, 1.6, 0);
-    const crowns: THREE.BufferGeometry[] = [];
-    for (let k = 0; k < 4; k++) {
-      const g = new THREE.IcosahedronGeometry(1.6 - k * 0.15, q === 'high' ? 2 : 1);
+    const leafTex = leafClusterTexture();
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    // Trunk with a few limbs.
+    const wood: THREE.BufferGeometry[] = [];
+    const trunk = new THREE.CylinderGeometry(0.13, 0.26, 3.6, 10, 4);
+    trunk.translate(0, 1.8, 0);
+    wood.push(trunk);
+    for (let i = 0; i < 4; i++) {
+      const limb = new THREE.CylinderGeometry(0.04, 0.09, 1.7, 7);
+      limb.translate(0, 0.85, 0);
+      limb.rotateZ(0.7 + rnd() * 0.3);
+      limb.rotateY((i / 4) * Math.PI * 2 + rnd());
+      limb.translate(0, 2.4 + rnd() * 0.9, 0);
+      wood.push(limb);
+    }
+    const trunkGeo = mergeGeometries(wood.map(flat))!;
+    // Crown: leaf cards on an ellipsoid shell, with normals pointing out of the
+    // crown so the foliage shades as one soft volume.
+    const cards: THREE.BufferGeometry[] = [];
+    const centre = new THREE.Vector3(0, 4.3, 0);
+    const nCards = q === 'high' ? 70 : q === 'medium' ? 52 : 34;
+    for (let i = 0; i < nCards; i++) {
+      const u = rnd() * 2 - 1, a = rnd() * Math.PI * 2, r = 0.55 + rnd() * 0.45;
+      const dir = new THREE.Vector3(Math.sqrt(1 - u * u) * Math.cos(a), u * 0.85, Math.sqrt(1 - u * u) * Math.sin(a));
+      const p = centre.clone().add(new THREE.Vector3(dir.x * 2.3 * r, dir.y * 1.9 * r, dir.z * 2.3 * r));
+      const size = 1.5 + rnd() * 0.9;
+      const g = new THREE.PlaneGeometry(size, size);
+      g.rotateY(rnd() * Math.PI);
+      g.rotateX((rnd() - 0.5) * 1.2);
+      g.translate(p.x, p.y, p.z);
+      const nrm = g.getAttribute('normal');
       const pos = g.getAttribute('position');
-      for (let i = 0; i < pos.count; i++) {
-        const v = new THREE.Vector3().fromBufferAttribute(pos, i);
-        const n = fbm(v.x * 0.9 + k * 3, v.y * 0.9 + v.z * 0.7, 16, 3, 71 + k);
-        v.multiplyScalar(0.8 + n * 0.5);
-        pos.setXYZ(i, v.x, v.y, v.z);
+      const col: number[] = [];
+      for (let k = 0; k < nrm.count; k++) {
+        const v = new THREE.Vector3().fromBufferAttribute(pos, k).sub(centre);
+        const n = v.clone().normalize();
+        nrm.setXYZ(k, n.x, n.y, n.z);
+        const shade = 0.55 + 0.45 * Math.min(1, Math.max(0, (v.y + 1.6) / 3.4)) * (0.7 + r * 0.3);
+        col.push(shade, shade, shade);
       }
-      g.translate((k % 2 ? 0.6 : -0.5) * (k > 1 ? 1 : 0.4), 3.6 + k * 0.7, (k % 3) * 0.3 - 0.3);
-      crowns.push(flat(g));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      cards.push(g);
     }
-    const crownGeo = mergeGeometries(crowns)!;
-    crownGeo.computeVertexNormals();
-    // Darker, bluer leaves inside and underneath; sunlit tips lighter.
-    const cp = crownGeo.getAttribute('position');
-    const cc: number[] = [];
-    for (let i = 0; i < cp.count; i++) {
-      const y = cp.getY(i);
-      const n = fbm(cp.getX(i) * 1.7 + 9, cp.getZ(i) * 1.7 + y, 16, 3, 91);
-      const k = 0.6 + Math.min(1, (y - 2.4) / 3.2) * 0.35 + (n - 0.5) * 0.35;
-      cc.push(k * 0.95, k, k * 0.9);
-    }
-    crownGeo.setAttribute('color', new THREE.Float32BufferAttribute(cc, 3));
-    const count = q === 'low' ? 60 : 140;
-    const trunks = new THREE.InstancedMesh(trunkGeo, new THREE.MeshStandardMaterial({ color: 0x4b3a2a, roughness: 1 }), count);
-    const leaves = new THREE.InstancedMesh(crownGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, vertexColors: true }), count);
+    const crownGeo = mergeGeometries(cards)!;
+    const count = q === 'low' ? 50 : 110;
+    const barkMat = new THREE.MeshStandardMaterial({ color: 0x4a3a2b, roughness: 0.95 });
+    const leafMat = new THREE.MeshStandardMaterial({ map: leafTex, alphaTest: 0.45, side: THREE.DoubleSide, vertexColors: true, roughness: 0.8 });
+    const trunks = new THREE.InstancedMesh(trunkGeo, barkMat, count);
+    const leaves = new THREE.InstancedMesh(crownGeo, leafMat, count);
     const m = new THREE.Matrix4();
     const q4 = new THREE.Quaternion();
     const c = new THREE.Color();
     let n = 0;
-    let seed = 1;
-    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     while (n < count) {
       const a = rnd() * Math.PI * 2;
-      const r = 32 + rnd() * 60;
+      const r = 30 + rnd() * 60;
       const x = Math.cos(a) * r * 0.75, z = Math.sin(a) * r * 1.15;
       if (Math.abs(x) < 26 && Math.abs(z) < 24) continue;
-      const s = 1.1 + rnd() * 1.6;
+      const sc = 1.0 + rnd() * 1.4;
       q4.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rnd() * Math.PI * 2);
-      m.compose(new THREE.Vector3(x, 0, z), q4, new THREE.Vector3(s, s * (0.9 + rnd() * 0.4), s));
+      m.compose(new THREE.Vector3(x, 0, z), q4, new THREE.Vector3(sc, sc * (0.9 + rnd() * 0.35), sc));
       trunks.setMatrixAt(n, m);
       leaves.setMatrixAt(n, m);
-      c.setHSL(0.24 + rnd() * 0.08, 0.45 + rnd() * 0.2, 0.2 + rnd() * 0.1);
+      c.setHSL(0.22 + rnd() * 0.08, 0.35 + rnd() * 0.25, 0.42 + rnd() * 0.18);
       leaves.setColorAt(n, c);
       n++;
     }
-    leaves.castShadow = false;
     this.group.add(trunks, leaves);
   }
 
@@ -323,10 +353,15 @@ export class Environment {
     u.rayleigh.value = L.rayleigh;
     u.mieCoefficient.value = 0.004;
     u.mieDirectionalG.value = 0.82;
+    if (u.cloudCoverage) {
+      u.cloudCoverage.value = t === 'sunset' ? 0.5 : 0.42;
+      u.cloudDensity.value = 0.45;
+    }
     u.sunPosition.value.copy(L.sunDir).multiplyScalar(400);
     this.sky.visible = !L.night;
     this.nightDome.visible = L.night;
     this.stars.visible = L.night;
+
     this.sun.color.copy(L.sunColor);
     this.sun.intensity = L.sunIntensity;
     this.hemi.color.copy(L.hemiSky);
@@ -367,14 +402,19 @@ export class Environment {
       f.mesh.geometry.computeVertexNormals();
     }
     this.crowd.update(dt, time);
+    this.grass.update(time);
+    const u = this.sky.material.uniforms;
+    if (u.time) u.time.value = time;
   }
 }
 
+/** Height of the seated body's seat contact above its origin. */
+const SEAT_Y = 0.79;
+
 /** Instanced spectators in bleachers along both sides of the courts. */
 export class Crowd {
-  private bodies: THREE.InstancedMesh;
-  private heads: THREE.InstancedMesh;
-  private caps: THREE.InstancedMesh;
+  /** One instanced mesh per stand so an off-screen stand is culled whole. */
+  private stands: { mesh: THREE.InstancedMesh; from: number; to: number }[] = [];
   private seats: { pos: THREE.Vector3; facing: number; phase: number; scale: number }[] = [];
   private excitement = 0;
   private readonly m = new THREE.Matrix4();
@@ -382,14 +422,14 @@ export class Crowd {
   private readonly v = new THREE.Vector3();
   private readonly s = new THREE.Vector3();
 
-  constructor(group: THREE.Group, q: Quality) {
+  constructor(group: THREE.Group, q: Quality, crowdBody: BodyMesh) {
     const benchMat = new THREE.MeshStandardMaterial({ color: 0xb9c0c7, metalness: 0.8, roughness: 0.35 });
     const frameMat = new THREE.MeshStandardMaterial({ color: 0x5d6369, metalness: 0.6, roughness: 0.5 });
     const rows = 5;
     const benches: THREE.BufferGeometry[] = [];
     const frames: THREE.BufferGeometry[] = [];
     const sideX = 3 * COURT_SPACING + 2.6;
-    const perRow = q === 'low' ? 10 : 18;
+    const perRow = q === 'low' ? 10 : 16;
     for (const sx of [-1, 1]) {
       for (const seg of [-1, 1]) {
         const zc = seg * 3.4;
@@ -405,7 +445,7 @@ export class Crowd {
           for (let k = 0; k < perRow; k++) {
             if (Math.random() < 0.18) continue;
             this.seats.push({
-              pos: new THREE.Vector3(x, y + 0.03, zc - 2.6 + (5.2 * (k + 0.5)) / perRow + (Math.random() - 0.5) * 0.08),
+              pos: new THREE.Vector3(x, y + 0.03 - SEAT_Y, zc - 2.6 + (5.2 * (k + 0.5)) / perRow + (Math.random() - 0.5) * 0.08),
               facing: sx > 0 ? -Math.PI / 2 : Math.PI / 2,
               phase: Math.random() * 10,
               scale: 0.9 + Math.random() * 0.2,
@@ -422,36 +462,67 @@ export class Crowd {
     group.add(new THREE.Mesh(mergeGeometries(benches)!, benchMat), new THREE.Mesh(mergeGeometries(frames)!, frameMat));
 
     const n = this.seats.length;
-    const bodyGeo = new THREE.CapsuleGeometry(0.17, 0.42, 3, 8);
-    bodyGeo.translate(0, 0.38, 0);
-    const legGeo = new THREE.BoxGeometry(0.3, 0.14, 0.42);
-    legGeo.translate(0, 0.07, 0.17);
-    const body = mergeGeometries([flat(bodyGeo), flat(legGeo)])!;
-    const headGeo = new THREE.SphereGeometry(0.11, 10, 7);
-    headGeo.translate(0, 0.92, 0);
-    const capGeo = new THREE.SphereGeometry(0.118, 10, 4, 0, Math.PI * 2, 0, Math.PI / 2);
-    const brim = new THREE.CylinderGeometry(0.12, 0.12, 0.012, 8, 1, false, -Math.PI / 2, Math.PI);
-    brim.scale(1, 1, 1.4);
-    brim.translate(0, 0, 0.06);
-    const capMerged = mergeGeometries([flat(capGeo), flat(brim)])!;
-    capMerged.translate(0, 0.94, 0);
-    this.bodies = new THREE.InstancedMesh(body, new THREE.MeshStandardMaterial({ roughness: 0.85 }), n);
-    this.heads = new THREE.InstancedMesh(headGeo, new THREE.MeshStandardMaterial({ roughness: 0.7 }), n);
-    this.caps = new THREE.InstancedMesh(capMerged, new THREE.MeshStandardMaterial({ roughness: 0.8 }), n);
-    const shirts = ['#c0392b', '#2471a3', '#f4d03f', '#ffffff', '#27ae60', '#e67e22', '#34495e', '#8e44ad', '#ecf0f1', '#1abc9c', '#d35400', '#7f8c8d'];
-    const skins = ['#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac', '#a0522d'];
-    const c = new THREE.Color();
-    for (let i = 0; i < n; i++) {
-      this.bodies.setColorAt(i, c.set(shirts[Math.floor(Math.random() * shirts.length)]));
-      this.heads.setColorAt(i, c.set(skins[Math.floor(Math.random() * skins.length)]));
-      this.caps.setColorAt(i, c.set(Math.random() < 0.45 ? shirts[Math.floor(Math.random() * shirts.length)] : skins[0]));
+    // Seated spectators: the sculpted body, with per-person shirt, skin and trousers.
+    const src = crowdBody.geometry;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', src.getAttribute('position'));
+    geo.setAttribute('normal', src.getAttribute('normal'));
+    geo.setIndex(src.getIndex());
+    const ao = src.getAttribute('color');
+    const vc = ao.count;
+    const base = new Float32Array(vc * 3);
+    const masks = new Float32Array(vc * 3);
+    const aoA = new Float32Array(vc);
+    const fixed: Record<string, THREE.Color> = { belt: new THREE.Color('#2e2015'), shoe: new THREE.Color('#d8d6d0'), sole: new THREE.Color('#5a4630'), hair: new THREE.Color('#2a1d12') };
+    for (let i = 0; i < vc; i++) {
+      const a = BODY_MATS[crowdBody.vmats[i * 2]], b = BODY_MATS[crowdBody.vmats[i * 2 + 1]], w = crowdBody.vmatW[i];
+      const o = ao.getX(i);
+      aoA[i] = o;
+      const mask = (m: string) => (a === m ? w : 0) + (b === m ? 1 - w : 0);
+      masks[i * 3] = mask('shirt');
+      masks[i * 3 + 1] = mask('skin');
+      masks[i * 3 + 2] = mask('pants');
+      const fa = fixed[a] ?? new THREE.Color(0, 0, 0), fb = fixed[b] ?? new THREE.Color(0, 0, 0);
+      base[i * 3] = (fa.r * (fixed[a] ? w : 0) + fb.r * (fixed[b] ? 1 - w : 0)) * o;
+      base[i * 3 + 1] = (fa.g * (fixed[a] ? w : 0) + fb.g * (fixed[b] ? 1 - w : 0)) * o;
+      base[i * 3 + 2] = (fa.b * (fixed[a] ? w : 0) + fb.b * (fixed[b] ? 1 - w : 0)) * o;
     }
-    this.caps.count = n;
-    for (const im of [this.bodies, this.heads, this.caps]) {
-      im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      group.add(im);
+    geo.setAttribute('color', new THREE.BufferAttribute(base, 3));
+    geo.setAttribute('masks', new THREE.BufferAttribute(masks, 3));
+    geo.setAttribute('aoV', new THREE.BufferAttribute(aoA, 1));
+    const shirts = ['#c0392b', '#2471a3', '#f4d03f', '#ffffff', '#27ae60', '#e67e22', '#34495e', '#8e44ad', '#ecf0f1', '#1abc9c', '#d35400', '#7f8c8d', '#13294b', '#b03060'];
+    const skins = ['#e8b98f', '#d39a72', '#b5774c', '#8d5524', '#f1cfae', '#a0623a'];
+    const pants = ['#2c3e5c', '#3b3f46', '#6b5a43', '#22324d', '#4a4a4a', '#8a7a5a'];
+    const sc = new Float32Array(n * 3), kc = new Float32Array(n * 3), pc = new Float32Array(n * 3);
+    const c = new THREE.Color();
+    const pick = (arr: string[]) => c.set(arr[Math.floor(Math.random() * arr.length)]);
+    for (let i = 0; i < n; i++) {
+      pick(shirts).toArray(sc, i * 3);
+      pick(skins).toArray(kc, i * 3);
+      pick(pants).toArray(pc, i * 3);
+    }
+    geo.setAttribute('shirtCol', new THREE.InstancedBufferAttribute(sc, 3));
+    geo.setAttribute('skinCol', new THREE.InstancedBufferAttribute(kc, 3));
+    geo.setAttribute('pantsCol', new THREE.InstancedBufferAttribute(pc, 3));
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75 });
+    mat.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute vec3 masks;\nattribute float aoV;\nattribute vec3 shirtCol;\nattribute vec3 skinCol;\nattribute vec3 pantsCol;')
+        .replace('#include <color_vertex>', '#include <color_vertex>\nvColor.rgb = color.rgb + aoV * (masks.x * shirtCol + masks.y * skinCol + masks.z * pantsCol);');
+    };
+    const split = this.seats.findIndex((st) => st.pos.x > 0);
+    for (const [from, to] of [[0, split], [split, n]]) {
+      const mesh = new THREE.InstancedMesh(geo, mat, to - from);
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.castShadow = false;
+      group.add(mesh);
+      this.stands.push({ mesh, from, to });
     }
     this.update(0, 0);
+    for (const st of this.stands) {
+      st.mesh.computeBoundingSphere();
+      st.mesh.boundingSphere!.radius += 0.6;
+    }
   }
 
   /** 0..1 burst of excitement (ringer, double ringer…). */
@@ -469,13 +540,10 @@ export class Crowd {
       this.q.setFromAxisAngle(this.v.set(0, 1, 0), st.facing + Math.sin(time * 0.4 + st.phase) * 0.15);
       this.s.setScalar(st.scale);
       this.m.compose(this.v.copy(st.pos).setY(st.pos.y + idle + jump), this.q, this.s);
-      this.bodies.setMatrixAt(i, this.m);
-      this.heads.setMatrixAt(i, this.m);
-      this.caps.setMatrixAt(i, this.m);
+      const stand = i < this.stands[0].to ? this.stands[0] : this.stands[1];
+      stand.mesh.setMatrixAt(i - stand.from, this.m);
     }
-    this.bodies.instanceMatrix.needsUpdate = true;
-    this.heads.instanceMatrix.needsUpdate = true;
-    this.caps.instanceMatrix.needsUpdate = true;
+    for (const st of this.stands) st.mesh.instanceMatrix.needsUpdate = true;
   }
 }
 
@@ -534,4 +602,42 @@ export class Scoreboard {
     }
     this.tex.needsUpdate = true;
   }
+}
+
+/** A cluster of leaves on transparent background for foliage cards. */
+function leafClusterTexture(): THREE.Texture {
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  let seed = 3;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 170; i++) {
+    const r = Math.sqrt(rnd()) * S * 0.44;
+    const a = rnd() * Math.PI * 2;
+    const x = S / 2 + Math.cos(a) * r, y = S / 2 + Math.sin(a) * r;
+    const len = 12 + rnd() * 12, wid = len * (0.42 + rnd() * 0.15);
+    g.save();
+    g.translate(x, y);
+    g.rotate(rnd() * Math.PI * 2);
+    const l = 30 + rnd() * 30;
+    const grad = g.createLinearGradient(-len, 0, len, 0);
+    grad.addColorStop(0, `hsl(${95 + rnd() * 25}, ${45 + rnd() * 20}%, ${l * 0.7}%)`);
+    grad.addColorStop(1, `hsl(${85 + rnd() * 25}, ${50 + rnd() * 20}%, ${l}%)`);
+    g.fillStyle = grad;
+    g.beginPath();
+    g.ellipse(0, 0, len, wid, 0, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = 'rgba(20,40,10,0.35)';
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(-len * 0.9, 0);
+    g.lineTo(len * 0.9, 0);
+    g.stroke();
+    g.restore();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
 }

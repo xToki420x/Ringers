@@ -230,7 +230,7 @@ export function shoeMaterial(l: Loadout, envMap?: THREE.Texture | null): THREE.M
   const oi = oc.createImageData(W, H);
   const bi = bc.createImageData(W, H);
   const paint = new THREE.Color(fin.color);
-  const steel = new THREE.Color('#8a8d91');
+  const steel = new THREE.Color('#c3c8cd');
   const pr = paint.r * 255, pg = paint.g * 255, pb = paint.b * 255;
   for (let y = 0; y < H; y++)
     for (let x = 0; x < W; x++) {
@@ -256,10 +256,11 @@ export function shoeMaterial(l: Loadout, envMap?: THREE.Texture | null): THREE.M
       }
       ci.data[i + 3] = 255;
       oi.data[i] = 255;
-      oi.data[i + 1] = (worn ? 0.32 : fin.roughness + (n - 0.5) * 0.12) * 255;
+      // Worn edges are bright, polished bare steel.
+      oi.data[i + 1] = Math.max(0.03, worn ? 0.16 : fin.roughness + (n - 0.5) * 0.05) * 255;
       oi.data[i + 2] = (worn ? 1 : fin.metalness) * 255;
       oi.data[i + 3] = 255;
-      const b = 128 + (n - 0.5) * 50 + (top ? 0 : -10);
+      const b = 128 + (n - 0.5) * 22 + (top ? 0 : -6);
       bi.data[i] = bi.data[i + 1] = bi.data[i + 2] = b;
       bi.data[i + 3] = 255;
     }
@@ -301,11 +302,12 @@ export function shoeMaterial(l: Loadout, envMap?: THREE.Texture | null): THREE.M
     roughness: 1,
     metalness: 1,
     bumpMap: tex(bump, false),
-    bumpScale: 1.2,
+    bumpScale: 0.6,
     clearcoat: fin.clearcoat,
-    clearcoatRoughness: 0.25,
+    clearcoatRoughness: 0.04,
     envMap: envMap ?? null,
-    envMapIntensity: 1.1,
+    envMapIntensity: 1.35,
+    specularIntensity: 1,
   });
   matCache.set(key, m);
   return m;

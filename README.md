@@ -27,8 +27,15 @@ to the other end, up through a 64-pitcher world championship.
   Every combination is verified against NHPA size, opening and weight limits in the test suite.
 - **A full championship.** 64 pitchers: sixteen round-robin pools of four, then a 32-pitcher single-elimination
   bracket to the title. AI opponents throw through the same physics with skill-calibrated release errors.
-- **Broadcast presentation.** Animated pitchers, slow motion at the stake, instant replay of ringers with the
-  clangs re-played, crowds in the bleachers that react, scoreboards, morning/afternoon/sunset/night lights.
+- **Broadcast presentation.** Every shoe is followed through the air in slow motion by a chase camera so you
+  can read the flip and where it will land (tap to speed it up). Your pitcher finishes the delivery in third
+  person as the shoe leaves the hand. Instant replay of ringers with the clangs re-played, crowds in the
+  bleachers that react, scoreboards, morning/afternoon/sunset/night lights.
+- **High-end rendering.** Pitchers and spectators are seamless sculpted bodies (a signed-distance sculpt
+  meshed with surface nets in a Web Worker, with baked ambient occlusion, cloth sheen and skinning), shoes use
+  clear-coat paint, polished steel and chrome lit by an HDR reflection probe with bloom on the glints, the lawn
+  is tens of thousands of instanced 3D grass blades swaying in the wind, trees are leafy, and the sky has
+  drifting clouds.
 - **All synthesised.** No bitmap or audio assets: textures are generated at load time and every sound — the
   stake's ring is modal synthesis of a struck steel rod — is synthesised with WebAudio.
 

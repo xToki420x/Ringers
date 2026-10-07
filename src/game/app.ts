@@ -76,6 +76,8 @@ export class App implements UIActions {
   private provisional: ShoeResult[] = [];
   private pendingAiError: DeliveryError | null = null;
   private heldShoe: THREE.Mesh | null = null;
+  private skipSlowmo = false;
+  private chaseSide: 1 | -1 = 1;
   /** Current swing position of the human's held shoe (−1 back … +1 release). */
   private swing = 0;
   // Instant replay recording of the current throw.
@@ -113,6 +115,10 @@ export class App implements UIActions {
     });
     const unlock = () => sfx.unlock();
     window.addEventListener('pointerdown', unlock, { passive: true });
+    // Tap during a slow-motion flight to let it play at full speed.
+    window.addEventListener('pointerdown', () => {
+      if (this.phase === 'flight' && !this.paused) this.skipSlowmo = true;
+    });
   }
 
   async start() {
@@ -415,17 +421,20 @@ export class App implements UIActions {
     this.control.setEnabled(false);
     if (this.data.settings.haptics) haptic(18);
     const p = this.currentPlayer()!;
-    // Visual hand-off: start the flying shoe where the held shoe was.
-    const vs = this.stage.viewShoe;
+    // Cut to third person: your pitcher finishes the delivery as the shoe leaves the hand.
+    const av = this.stage.pitchers[0];
+    av.root.visible = true;
+    av.startDelivery(Pitcher.RELEASE_AT - 0.02);
+    av.update(0);
+    av.root.updateMatrixWorld(true);
     const from = new THREE.Vector3();
-    if (vs) vs.getWorldPosition(from);
+    av.hand.getWorldPosition(from);
     const shoe = this.release(p, g.error, g);
-    if (vs) {
-      const off = from.sub(shoe.plan.state.position);
-      this.stage.setShoeVisualOffset(shoe.id, off.length() < 3 ? off : new THREE.Vector3());
-    }
+    const off = from.sub(shoe.plan.state.position);
+    if (off.length() < 0.6) this.stage.setShoeVisualOffset(shoe.id, off);
     this.stage.showViewShoe(null);
-    this.ui.hint(null);
+    this.stage.rig.set(this.stage.releaseShot(this.pitchFrom(), this.cfg().distance, SIDE_FOR_HAND(p.hand), p.hand), true);
+    this.ui.hint('Tap to speed up');
     this.showReadout(g);
   }
 
@@ -464,6 +473,9 @@ export class App implements UIActions {
     this.replayable = false;
     sfx.whoosh(0.8);
     this.simAcc = 0;
+    this.skipSlowmo = false;
+    this.chaseSide = p.hand === 1 ? -1 : 1;
+    if (this.data.settings.slowmo && !(this.data.settings.fastAi && !p.isHuman)) this.timeScale = this.timeScaleTarget = p.isHuman ? 0.32 : 0.45;
     this.setPhase('flight');
     return shoe;
   }
@@ -479,7 +491,8 @@ export class App implements UIActions {
     if (this.warp === 1 && !this.paused) this.stage.adapt(raw);
     this.last = now;
     if (!this.paused) this.update(dt);
-    this.stage.update(this.paused ? 0 : dt * (this.phase === 'flight' ? Math.max(0.35, this.timeScale) : 1));
+    const slow = this.phase === 'flight' || this.phase === 'settled' ? this.timeScale : 1;
+    this.stage.update(this.paused ? 0 : dt, this.paused ? 0 : dt * slow);
     this.ui.updateTags(this.stage.camera);
     this.control.draw(dt);
     this.stage.render();
@@ -684,22 +697,28 @@ export class App implements UIActions {
   private updateFlight(dt: number) {
     const s = this.thrown!;
     const b = this.physics.shoes.get(s.id);
-    // Slow motion as an on-target shoe reaches the stake.
+    // Slow motion through the whole flight so you can read how the shoe
+    // is turning and where it will land, slowest as it reaches the stake.
     const z = stakeZ(this.targetEnd());
-    if (b && this.data.settings.slowmo && !this.isAiTurnFast()) {
+    const human = this.players![s.owner].isHuman;
+    if (b && this.data.settings.slowmo && !this.isAiTurnFast() && !this.skipSlowmo) {
       const dz = Math.abs(b.pz - z);
-      const near = dz < 1.1 && b.py < 0.7 && Math.abs(b.px) < 0.35 && s.landedAt < 0;
-      this.timeScaleTarget = near ? 0.3 : s.landedAt >= 0 && this.phaseT - s.landedAt > 0.35 ? 1 : this.timeScaleTarget;
+      const near = dz < 1.2 && b.py < 0.8 && s.landedAt < 0;
+      const cruise = human ? 0.32 : 0.45;
+      if (s.landedAt < 0) this.timeScaleTarget = near ? 0.2 : cruise;
+      else if (this.phaseT - s.landedAt > 1.4) this.timeScaleTarget = 1;
     } else this.timeScaleTarget = 1;
-    this.timeScale += (this.timeScaleTarget - this.timeScale) * Math.min(1, dt * 10);
+    this.timeScale += (this.timeScaleTarget - this.timeScale) * Math.min(1, dt * 8);
     this.stepPhysics(dt);
     if (b) {
       const pos = new THREE.Vector3(b.px, b.py, b.pz);
-      const progress = Math.min(1.2, (b.age) / s.plan.catchTime);
-      if (s.landedAt < 0) this.stage.rig.set(this.stage.followShot(pos, this.targetEnd(), progress), false, 6);
-      else this.stage.rig.set(this.stage.stakeShot(this.targetEnd(), pos.x >= 0 ? 1 : -1), false, 2.5);
+      const vel = new THREE.Vector3(b.vx, b.vy, b.vz);
+      if (s.landedAt < 0) {
+        // Hold the release angle for a beat, then ride with the shoe.
+        if (b.age > (human ? 0.22 : 0.12)) this.stage.rig.set(this.stage.chaseShot(pos, vel, this.targetEnd(), this.chaseSide), false, b.age < 0.5 ? 4 : 9);
+      } else this.stage.rig.set(this.stage.chaseShot(new THREE.Vector3(0, 0.1, z), new THREE.Vector3(0, 0, this.targetEnd() === 1 ? 1 : -1), this.targetEnd(), this.chaseSide), false, 3);
     }
-    const done = this.physics.allAtRest() || this.phaseT > 10;
+    const done = this.physics.allAtRest() || this.phaseT > 18;
     if (done) {
       this.timeScaleTarget = 1;
       this.onSettled();
@@ -767,6 +786,7 @@ export class App implements UIActions {
   }
 
   private onSettled() {
+    this.ui.hint(null);
     this.setPhase('settled');
     const results = this.judgeAll();
     const idx = this.live.length - 1;
