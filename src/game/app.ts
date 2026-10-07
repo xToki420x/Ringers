@@ -569,7 +569,7 @@ export class App implements UIActions {
   }
 
   private updateMenu() {
-    const shift = this.menuKind === 'shop' ? 0.31 : 0.22;
+    const shift = this.menuKind === 'shop' ? 0.31 : 0.15;
     if (this.viewShift !== shift) {
       this.viewShift = shift;
       this.stage.setViewShift(shift);
@@ -595,12 +595,14 @@ export class App implements UIActions {
         this.onContact(e);
         if (this.phase === 'flight') this.recEvents.push({ t: this.simClock, e });
       }
+      // Record the replay at 120 Hz of simulation time, independent of frame rate.
+      if (this.phase === 'flight' && this.recStep++ % 4 === 0) this.recordFrame();
       this.simAcc -= PHYSICS_DT;
       n++;
     }
     if (n >= 40 * this.warp) this.simAcc = 0;
-    if (this.phase === 'flight' && n > 0) this.recordFrame();
   }
+  private recStep = 0;
 
   private recordFrame() {
     const poses = new Float32Array(this.recIds.length * 7);
@@ -811,7 +813,7 @@ export class App implements UIActions {
       cheer = Math.max(cheer, 0.8);
     }
     this.ui.callout(big, sub, plain, this.isAiTurnFast() ? 900 : 1600);
-    this.replayable = !this.isAiTurnFast() && !r.foul && (r.ringer || r.leaner || knocked || shoe.stakeHits > 0) && this.recFrames.length > 10;
+    this.replayable = !this.isAiTurnFast() && !r.foul && (r.ringer || r.leaner || knocked || shoe.stakeHits > 0) && this.recFrames.length > 30;
     if (this.replayable) this.ui.replayButton(() => this.startReplay());
     if (cheer > 0) {
       sfx.crowd(cheer);

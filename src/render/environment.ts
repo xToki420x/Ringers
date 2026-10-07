@@ -39,7 +39,7 @@ export function lightingFor(t: TimeOfDay): Lighting {
     case 'sunset':
       return { sunDir: dir(0.11, -1.9), sunColor: new THREE.Color(1, 0.62, 0.36), sunIntensity: 3.2, hemiSky: new THREE.Color(0.55, 0.55, 0.78), hemiGround: new THREE.Color(0.3, 0.22, 0.14), hemiIntensity: 0.75, exposure: 1.05, fog: new THREE.Color(0.86, 0.62, 0.48), fogDensity: 0.007, turbidity: 8, rayleigh: 2.6, night: false };
     case 'night':
-      return { sunDir: dir(1.15, 0.5), sunColor: new THREE.Color(0.92, 0.95, 1), sunIntensity: 2.6, hemiSky: new THREE.Color(0.12, 0.15, 0.26), hemiGround: new THREE.Color(0.06, 0.07, 0.05), hemiIntensity: 0.6, exposure: 1.0, fog: new THREE.Color(0.03, 0.04, 0.07), fogDensity: 0.012, turbidity: 1, rayleigh: 0.2, night: true };
+      return { sunDir: dir(1.15, 0.5), sunColor: new THREE.Color(1, 0.97, 0.9), sunIntensity: 3.2, hemiSky: new THREE.Color(0.3, 0.34, 0.45), hemiGround: new THREE.Color(0.12, 0.14, 0.1), hemiIntensity: 1.0, exposure: 1.05, fog: new THREE.Color(0.03, 0.04, 0.07), fogDensity: 0.012, turbidity: 1, rayleigh: 0.2, night: true };
   }
 }
 

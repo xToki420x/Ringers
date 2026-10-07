@@ -167,13 +167,19 @@ export class Stage {
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     const envScene = new THREE.Scene();
     if (t === 'night') {
-      envScene.background = new THREE.Color(0x0b1020);
-      const l = new THREE.Mesh(new THREE.SphereGeometry(5, 8, 8), new THREE.MeshBasicMaterial({ color: 0xfff0d0 }));
-      l.position.set(30, 60, 30);
-      envScene.add(l);
-      const l2 = l.clone();
-      l2.position.set(-30, 60, -30);
-      envScene.add(l2);
+      // Floodlit night: dark sky, bright light banks high on four towers, lit lawn below.
+      envScene.background = new THREE.Color(0x141c2c);
+      const lampMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 5.6, 4.8) });
+      for (const [x, z] of [[40, 30], [-40, 30], [40, -30], [-40, -30]]) {
+        const l = new THREE.Mesh(new THREE.BoxGeometry(14, 6, 2), lampMat);
+        l.position.set(x, 45, z);
+        l.lookAt(0, 0, 0);
+        envScene.add(l);
+      }
+      const ground = new THREE.Mesh(new THREE.CircleGeometry(800, 16), new THREE.MeshBasicMaterial({ color: 0x1c2a14 }));
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.y = -1;
+      envScene.add(ground);
     } else {
       const sky = this.env.sky.clone();
       sky.material = this.env.sky.material;
@@ -187,7 +193,7 @@ export class Stage {
     if (this.envMap) this.envMap.dispose();
     this.envMap = rt.texture;
     this.scene.environment = this.envMap;
-    this.scene.environmentIntensity = t === 'night' ? 0.5 : 1.0;
+    this.scene.environmentIntensity = t === 'night' ? 0.9 : 1.0;
     pmrem.dispose();
   }
 
@@ -329,12 +335,12 @@ export class Stage {
   replayShot(targetEnd: 0 | 1, side: 1 | -1, k: number): Shot {
     const z = stakeZ(targetEnd);
     const dir = targetEnd === 1 ? 1 : -1;
-    const r = 0.95 - k * 0.25;
-    const a = side * (0.95 + k * 0.25);
+    const r = 1.3 - k * 0.2;
+    const a = side * (1.3 + k * 0.15);
     return {
-      pos: new THREE.Vector3(Math.sin(a) * r, 0.16 + k * 0.08, z - dir * Math.cos(a) * r),
-      look: new THREE.Vector3(0, 0.12, z),
-      fov: 34,
+      pos: new THREE.Vector3(Math.sin(a) * r, 0.2 + k * 0.06, z - dir * Math.cos(a) * r),
+      look: new THREE.Vector3(0, 0.13, z),
+      fov: 30,
     };
   }
 
@@ -357,12 +363,12 @@ export class Stage {
   }
 
   menuShot(t: number): Shot {
-    const a = 0.45 + Math.sin(t * 0.045) * 0.7;
+    const a = 0.4 + Math.sin(t * 0.045) * 0.75;
     const z = stakeZ(1);
-    const r = 1.7;
+    const r = 2.75;
     return {
-      pos: new THREE.Vector3(Math.sin(a) * r, 0.62 + Math.sin(t * 0.09) * 0.05, z - Math.cos(a) * r),
-      look: new THREE.Vector3(0, 0.16, z + 0.06),
+      pos: new THREE.Vector3(Math.sin(a) * r, 0.92 + Math.sin(t * 0.09) * 0.06, z - Math.cos(a) * r),
+      look: new THREE.Vector3(0, 0.15, z + 0.05),
       fov: 30,
     };
   }

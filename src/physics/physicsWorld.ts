@@ -172,6 +172,8 @@ export class ShoeBody {
   readonly invIw = new Float64Array(9);
   /** World-space sphere centres. */
   readonly ws: Float64Array;
+  /** World AABB of the collision proxy (minX, minY, minZ, maxX, maxY, maxZ). */
+  readonly aabb = new Float64Array(6);
 
   sleeping = false;
   restTime = 0;
@@ -251,12 +253,20 @@ export class ShoeBody {
       for (let j = 0; j < 3; j++) t[i * 3 + j] = R[i * 3] * A[j] + R[i * 3 + 1] * A[3 + j] + R[i * 3 + 2] * A[6 + j];
     for (let i = 0; i < 3; i++)
       for (let j = 0; j < 3; j++) out[i * 3 + j] = t[i * 3] * R[j * 3] + t[i * 3 + 1] * R[j * 3 + 1] + t[i * 3 + 2] * R[j * 3 + 2];
-    const s = this.spheres, ws = this.ws;
+    const s = this.spheres, ws = this.ws, bb = this.aabb;
+    bb[0] = bb[1] = bb[2] = Infinity;
+    bb[3] = bb[4] = bb[5] = -Infinity;
     for (let i = 0; i < this.sphereCount; i++) {
-      const x = s[i * 4], y = s[i * 4 + 1], z = s[i * 4 + 2];
-      ws[i * 3] = this.px + R[0] * x + R[1] * y + R[2] * z;
-      ws[i * 3 + 1] = this.py + R[3] * x + R[4] * y + R[5] * z;
-      ws[i * 3 + 2] = this.pz + R[6] * x + R[7] * y + R[8] * z;
+      const x = s[i * 4], y = s[i * 4 + 1], z = s[i * 4 + 2], r = s[i * 4 + 3];
+      const wx = (ws[i * 3] = this.px + R[0] * x + R[1] * y + R[2] * z);
+      const wy = (ws[i * 3 + 1] = this.py + R[3] * x + R[4] * y + R[5] * z);
+      const wz = (ws[i * 3 + 2] = this.pz + R[6] * x + R[7] * y + R[8] * z);
+      if (wx - r < bb[0]) bb[0] = wx - r;
+      if (wy - r < bb[1]) bb[1] = wy - r;
+      if (wz - r < bb[2]) bb[2] = wz - r;
+      if (wx + r > bb[3]) bb[3] = wx + r;
+      if (wy + r > bb[4]) bb[4] = wy + r;
+      if (wz + r > bb[5]) bb[5] = wz + r;
     }
   }
 
@@ -675,13 +685,15 @@ export class PhysicsWorld {
     const dx = a.px - b.px, dy = a.py - b.py, dz = a.pz - b.pz;
     const reach = a.boundR + b.boundR + margin;
     if (dx * dx + dy * dy + dz * dz > reach * reach) return;
+    const A = a.aabb, B = b.aabb;
+    if (A[0] > B[3] + margin || A[3] < B[0] - margin || A[1] > B[4] + margin || A[4] < B[1] - margin || A[2] > B[5] + margin || A[5] < B[2] - margin) return;
     const wa = a.ws, wb = b.ws, sa = a.spheres, sb = b.spheres, ca = a.coarse, cb = b.coarse;
-    const rb = b.boundR + margin;
     for (let ii = 0; ii < ca.length; ii++) {
       const i = ca[ii];
       const x = wa[i * 3], y = wa[i * 3 + 1], z = wa[i * 3 + 2], r = sa[i * 4 + 3];
-      const ox = x - b.px, oy = y - b.py, oz = z - b.pz;
-      if (ox * ox + oy * oy + oz * oz > (rb + r) * (rb + r)) continue;
+      // Reject spheres outside the other shoe's box (cheap and tight for flat shoes).
+      const e = r + margin;
+      if (x + e < B[0] || x - e > B[3] || y + e < B[1] || y - e > B[4] || z + e < B[2] || z - e > B[5]) continue;
       for (let jj = 0; jj < cb.length; jj++) {
         const j = cb[jj];
         const ex = x - wb[j * 3], ey = y - wb[j * 3 + 1], ez = z - wb[j * 3 + 2];

@@ -114,7 +114,7 @@ export class UI {
       'title',
       h(
         'div',
-        { class: 'screen clear' },
+        { class: 'screen clear title-screen' },
         h('div', { class: 'title-wrap' }, h('div', { class: 'logo' }, 'RINGERS'), h('div', { class: 'logo-sub' }, 'Championship Horseshoes')),
         h(
           'div',

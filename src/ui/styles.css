@@ -529,7 +529,7 @@ body {
   background: linear-gradient(180deg, rgba(8, 11, 16, 0.55) 0%, rgba(8, 11, 16, 0.9) 45%, rgba(8, 11, 16, 0.97) 100%);
 }
 .screen.clear {
-  background: linear-gradient(180deg, rgba(8, 11, 16, 0.35) 0%, rgba(8, 11, 16, 0) 30%, rgba(8, 11, 16, 0) 45%, rgba(8, 11, 16, 0.95) 70%);
+  background: linear-gradient(180deg, rgba(8, 11, 16, 0.55) 0%, rgba(8, 11, 16, 0) 22%, rgba(8, 11, 16, 0) 46%, rgba(8, 11, 16, 0.92) 62%);
 }
 @keyframes screenIn {
   from {
@@ -566,12 +566,12 @@ body {
 }
 
 .title-wrap {
-  margin-top: auto;
-  margin-bottom: 18px;
+  margin-top: 2vh;
+  margin-bottom: auto;
   text-align: center;
 }
 .logo {
-  font: 700 clamp(62px, 20vw, 120px) / 0.9 var(--head);
+  font: 700 clamp(56px, 18vw, 112px) / 0.9 var(--head);
   letter-spacing: 0.02em;
   background: linear-gradient(180deg, #fff7dd 0%, #ffd56a 40%, #e88a14 100%);
   -webkit-background-clip: text;
@@ -590,7 +590,7 @@ body {
 
 .menu {
   display: grid;
-  gap: 10px;
+  gap: 9px;
   width: 100%;
   max-width: 420px;
   margin: 0 auto;
@@ -602,7 +602,7 @@ body {
   background: var(--panel-2);
   color: var(--text);
   border-radius: 14px;
-  padding: 15px 18px;
+  padding: 14px 18px;
   font: 600 17px/1 var(--head);
   letter-spacing: 0.06em;
   text-transform: uppercase;
