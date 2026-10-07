@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0f14" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="description" content="Ringers — championship horseshoe pitching in full 3D. Real physics, regulation courts, a 64-pitcher world championship." />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+    <title>Ringers · Championship Horseshoes</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="scene"></canvas>
+      <div id="labels"></div>
+      <div id="pad"></div>
+      <canvas id="padCanvas"></canvas>
+      <div id="hud"></div>
+      <div id="screens"></div>
+      <div id="loading">
+        <div class="logo">RINGERS</div>
+        <div class="bar"><i></i></div>
+        <div class="msg">Loading</div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

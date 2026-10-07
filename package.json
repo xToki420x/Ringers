@@ -1,0 +1,34 @@
+{
+  "name": "ringers",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Ringers — a 3D tournament horseshoe pitching game for phones",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "calibrate": "vitest run tests/calibration.test.ts",
+    "cap:sync": "npm run build && npx cap sync"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.5.2",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/oswald": "^5.3.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
+    "@types/node": "^26.6.4",
+    "@types/three": "^0.186.0",
+    "typescript": "~5.9",
+    "vite": "^8.3.3",
+    "vitest": "^5.0.3"
+  }
+}
