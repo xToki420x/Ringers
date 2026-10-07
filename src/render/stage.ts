@@ -335,12 +335,12 @@ export class Stage {
   replayShot(targetEnd: 0 | 1, side: 1 | -1, k: number): Shot {
     const z = stakeZ(targetEnd);
     const dir = targetEnd === 1 ? 1 : -1;
-    const r = 1.3 - k * 0.2;
-    const a = side * (1.3 + k * 0.15);
+    const r = 1.55 - k * 0.2;
+    const a = side * (1.25 + k * 0.15);
     return {
-      pos: new THREE.Vector3(Math.sin(a) * r, 0.2 + k * 0.06, z - dir * Math.cos(a) * r),
-      look: new THREE.Vector3(0, 0.13, z),
-      fov: 30,
+      pos: new THREE.Vector3(Math.sin(a) * r, 0.3 + k * 0.05, z - dir * Math.cos(a) * r),
+      look: new THREE.Vector3(0, 0.1, z),
+      fov: 36,
     };
   }
 

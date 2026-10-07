@@ -143,12 +143,10 @@ function buildGeometry(spec: ShapeSpec): ShoeGeometry {
   const hook = spec.hook * IN;
   // Hooks protrude inward at the heel tips.
   const heelR = innerContour[N];
-  const heelL = innerContour[0];
   const nR = centerNormal(g0, thetaMax);
   const hookTipR = { x: heelR.x - nR.x * hook, z: heelR.z - nR.z * hook };
   const hookTipL = { x: -hookTipR.x, z: hookTipR.z };
   const opening = hookTipR.x - hookTipL.x;
-  void heelL;
 
   const heelCenterR = centerline(g0, thetaMax);
   const heelCenterL = centerline(g0, -thetaMax);
@@ -306,9 +304,7 @@ function buildGeometry(spec: ShapeSpec): ShoeGeometry {
     const th = -thetaMax + (2 * thetaMax * (i + 0.5)) / MA;
     const p = centerline(g0, th);
     const n = centerNormal(g0, th);
-    const tg = centerTangent(g0, th);
     const dC = Math.hypot(g0.a * Math.cos(th), g0.c * Math.sin(th)) * ((2 * thetaMax) / MA);
-    void tg;
     const b = bandWidth(g0, th);
     for (let j = 0; j < MS; j++) {
       const sOff = -b / 2 + (b * (j + 0.5)) / MS;
