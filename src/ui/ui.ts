@@ -83,6 +83,16 @@ export class UI {
     this.screens.replaceChildren();
   }
 
+  /** In-game confirmation dialog (browser confirm() is unavailable in embedded views). */
+  ask(question: string, action: string, onYes: () => void) {
+    const modal = h('div', { class: 'modal' }, h('div', { class: 'panel', style: 'display:grid;gap:10px;text-align:center' },
+      h('div', { style: 'font:600 18px var(--head);letter-spacing:.04em;margin:4px 0 6px' }, question),
+      h('button', { class: 'btn center', style: 'color:var(--red)', onclick: () => { modal.remove(); this.a.tap('confirm'); onYes(); } }, action),
+      h('button', { class: 'btn primary center', onclick: () => { modal.remove(); this.a.tap('back'); } }, 'Cancel'),
+    ));
+    document.getElementById('app')!.append(modal);
+  }
+
   toast(text: string, ms = 2200) {
     const t = h('div', { class: 'toast' }, text);
     document.getElementById('app')!.append(t);
@@ -307,7 +317,7 @@ export class UI {
         row('Metric units', 'Measure in centimetres', toggle(s.metric, (v) => { s.metric = v; save(); })),
       ),
       h('button', { class: 'btn center', style: 'margin-top:16px;color:var(--red)', onclick: () => {
-        if (confirm('Erase all progress, stats and settings?')) { this.a.resetData(); this.toast('Progress reset'); back(); }
+        this.ask('Erase all progress, stats and settings?', 'Reset', () => { this.a.resetData(); this.toast('Progress reset'); back(); });
       } }, 'Reset progress'),
       h('p', { style: 'color:var(--muted);font-size:11px;text-align:center;margin-top:14px' }, 'Ringers · Court, stake and shoe dimensions follow NHPA rules. Brands are fictional.'),
     ));
@@ -401,7 +411,7 @@ export class UI {
       tabs,
       body,
       h('button', { class: 'btn center', style: 'margin-top:18px;color:var(--muted)', onclick: () => {
-        if (confirm('Withdraw from this championship?')) { this.a.abandonTournament(); this.tournamentHub(); }
+        this.ask('Withdraw from this championship?', 'Withdraw', () => { this.a.abandonTournament(); this.tournamentHub(); });
       } }, 'Withdraw'),
     ));
   }
