@@ -27,6 +27,7 @@ type Phase =
   | 'summary'
   | 'walk'
   | 'wait'
+  | 'replay'
   | 'gameover';
 
 interface LiveShoe {
@@ -77,6 +78,15 @@ export class App implements UIActions {
   private heldShoe: THREE.Mesh | null = null;
   /** Current swing position of the human's held shoe (−1 back … +1 release). */
   private swing = 0;
+  // Instant replay recording of the current throw.
+  private simClock = 0;
+  private recIds: number[] = [];
+  private recFrames: { t: number; poses: Float32Array }[] = [];
+  private recEvents: { t: number; e: ContactEvent }[] = [];
+  private replayable = false;
+  private replayT = 0;
+  private replayEnd = 0;
+  private replaySide: 1 | -1 = 1;
 
   constructor() {
     const canvas = document.getElementById('scene') as HTMLCanvasElement;
@@ -447,6 +457,11 @@ export class App implements UIActions {
     const shoe: LiveShoe = { id, owner: idx, plan, gesture, foul: false, firstContact: -1, landedAt: -1, stakeHits: 0 };
     this.live.push(shoe);
     this.thrown = shoe;
+    this.simClock = 0;
+    this.recIds = this.live.filter((l) => this.physics.shoes.has(l.id)).map((l) => l.id);
+    this.recFrames = [];
+    this.recEvents = [];
+    this.replayable = false;
     sfx.whoosh(0.8);
     this.simAcc = 0;
     this.setPhase('flight');
@@ -459,7 +474,9 @@ export class App implements UIActions {
   private readonly warp = Math.max(1, Math.min(10, Number(new URLSearchParams(location.search).get('warp')) || 1));
 
   private frame = (now: number) => {
-    const dt = Math.min(0.05 * this.warp, (now - this.last) / 1000);
+    const raw = (now - this.last) / 1000;
+    const dt = Math.min(0.05 * this.warp, raw);
+    if (this.warp === 1 && !this.paused) this.stage.adapt(raw);
     this.last = now;
     if (!this.paused) this.update(dt);
     this.stage.update(this.paused ? 0 : dt * (this.phase === 'flight' ? Math.max(0.35, this.timeScale) : 1));
@@ -524,7 +541,10 @@ export class App implements UIActions {
         break;
       case 'settled':
         this.stepPhysics(dt);
-        if (this.phaseT > (this.isAiTurnFast() ? 0.9 : 1.6)) this.afterShoe();
+        if (this.phaseT > (this.isAiTurnFast() ? 0.9 : this.replayable ? 2.8 : 1.6)) this.afterShoe();
+        break;
+      case 'replay':
+        this.updateReplay(dt);
         break;
       case 'summary':
         if (this.session?.kind === 'practice' && this.phaseT > 2.2) this.continueAfterSummary();
@@ -570,11 +590,93 @@ export class App implements UIActions {
     let n = 0;
     while (this.simAcc >= PHYSICS_DT && n < 40 * this.warp) {
       const ev = this.physics.step();
-      for (const e of ev) this.onContact(e);
+      this.simClock += PHYSICS_DT;
+      for (const e of ev) {
+        this.onContact(e);
+        if (this.phase === 'flight') this.recEvents.push({ t: this.simClock, e });
+      }
       this.simAcc -= PHYSICS_DT;
       n++;
     }
     if (n >= 40 * this.warp) this.simAcc = 0;
+    if (this.phase === 'flight' && n > 0) this.recordFrame();
+  }
+
+  private recordFrame() {
+    const poses = new Float32Array(this.recIds.length * 7);
+    const p = new THREE.Vector3();
+    const q = new THREE.Quaternion();
+    this.recIds.forEach((id, i) => {
+      const b = this.physics.shoes.get(id);
+      if (!b) return;
+      b.pose(p, q);
+      poses.set([p.x, p.y, p.z, q.x, q.y, q.z, q.w], i * 7);
+    });
+    this.recFrames.push({ t: this.simClock, poses });
+  }
+
+  private startReplay() {
+    if (this.phase !== 'settled' || this.recFrames.length < 2) return;
+    const first = this.recEvents.find((r) => r.e.shoeId === this.thrown?.id && r.e.kind !== 'ground');
+    const tc = first ? first.t : this.recFrames[this.recFrames.length - 1].t - 1;
+    this.replayT = Math.max(this.recFrames[0].t, tc - 0.5);
+    this.replayEnd = Math.min(this.recFrames[this.recFrames.length - 1].t, tc + 2.2);
+    this.replaySide = Math.random() < 0.5 ? 1 : -1;
+    this.setPhase('replay');
+    this.stage.replaying = true;
+    this.ui.callout(null);
+    this.ui.clearTags();
+    this.ui.readout(null);
+    this.ui.replayButton(null);
+    this.ui.replayBadge(true);
+    this.stage.rig.set(this.stage.replayShot(this.targetEnd(), this.replaySide, 0), true);
+    this.applyReplayFrame();
+  }
+
+  private updateReplay(dt: number) {
+    const prev = this.replayT;
+    this.replayT += dt * 0.28;
+    for (const r of this.recEvents) {
+      if (r.t > prev && r.t <= this.replayT) {
+        if (r.e.kind === 'stake') sfx.stake(r.e.speed, BRANDS[(this.physics.shoes.get(r.e.shoeId)?.loadout ?? this.data.loadout).brand].hardness);
+        else if (r.e.kind === 'shoe') sfx.clink(r.e.speed);
+        else if (r.e.kind === 'pit' && r.e.speed > 0.3) {
+          sfx.thud(r.e.speed * 0.8, this.physics.pit);
+          this.stage.particles.sandImpact(r.e.position, new THREE.Vector3(0, 0, this.targetEnd() === 1 ? 2 : -2), 2);
+        }
+      }
+    }
+    const k = (this.replayT - (this.replayEnd - 2.7)) / 2.7;
+    this.stage.rig.set(this.stage.replayShot(this.targetEnd(), this.replaySide, Math.max(0, Math.min(1, k))), false, 3);
+    this.applyReplayFrame();
+    if (this.replayT >= this.replayEnd + 0.15) {
+      this.stage.replaying = false;
+      this.ui.replayBadge(false);
+      this.replayable = false;
+      this.setPhase('settled');
+      this.phaseT = 0.6;
+      this.showTags(this.provisional);
+      this.stage.rig.set(this.stage.stakeShot(this.targetEnd()), false, 2);
+    }
+  }
+
+  private applyReplayFrame() {
+    const f = this.recFrames;
+    let i = 0;
+    while (i < f.length - 2 && f[i + 1].t < this.replayT) i++;
+    const a = f[i], b = f[Math.min(f.length - 1, i + 1)];
+    const u = b.t > a.t ? Math.max(0, Math.min(1, (this.replayT - a.t) / (b.t - a.t))) : 0;
+    const p = new THREE.Vector3();
+    const q = new THREE.Quaternion();
+    const qb = new THREE.Quaternion();
+    this.recIds.forEach((id, j) => {
+      const o = j * 7;
+      p.set(a.poses[o], a.poses[o + 1], a.poses[o + 2]).lerp(new THREE.Vector3(b.poses[o], b.poses[o + 1], b.poses[o + 2]), u);
+      q.set(a.poses[o + 3], a.poses[o + 4], a.poses[o + 5], a.poses[o + 6]);
+      qb.set(b.poses[o + 3], b.poses[o + 4], b.poses[o + 5], b.poses[o + 6]);
+      q.slerp(qb, u);
+      this.stage.setShoePose(id, p, q);
+    });
   }
 
   private updateFlight(dt: number) {
@@ -709,6 +811,8 @@ export class App implements UIActions {
       cheer = Math.max(cheer, 0.8);
     }
     this.ui.callout(big, sub, plain, this.isAiTurnFast() ? 900 : 1600);
+    this.replayable = !this.isAiTurnFast() && !r.foul && (r.ringer || r.leaner || knocked || shoe.stakeHits > 0) && this.recFrames.length > 10;
+    if (this.replayable) this.ui.replayButton(() => this.startReplay());
     if (cheer > 0) {
       sfx.crowd(cheer);
       this.stage.env.crowd.cheer(cheer);
@@ -764,6 +868,7 @@ export class App implements UIActions {
   /** After a shoe is judged: next shoe, or end of inning. */
   private afterShoe() {
     this.ui.readout(null);
+    this.ui.replayButton(null);
     if (!this.match) {
       // Practice: pick up after each pair.
       if (this.live.length >= 2) {

@@ -96,11 +96,16 @@ export class Stage {
   private clock = 0;
   readonly quality: Quality;
   private timeOfDay: TimeOfDay = 'afternoon';
+  private get pitCell() {
+    return this.quality === 'high' ? 0.0075 : this.quality === 'medium' ? 0.009 : 0.012;
+  }
 
   constructor(readonly canvas: HTMLCanvasElement, quality: Quality) {
     this.quality = quality;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: quality !== 'low', powerPreference: 'high-performance', stencil: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality === 'high' ? 2 : quality === 'medium' ? 1.5 : 1));
+    this.maxRatio = Math.min(window.devicePixelRatio || 1, quality === 'high' ? 2 : quality === 'medium' ? 1.5 : 1);
+    this.ratio = this.maxRatio;
+    this.renderer.setPixelRatio(this.ratio);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.shadowMap.enabled = true;
@@ -139,8 +144,8 @@ export class Stage {
       this.scene.add(court.group);
     }
     this.pits = [
-      new SandPit(0, stakeZ(0), sand, 'sand'),
-      new SandPit(1, stakeZ(1), sand, 'sand'),
+      new SandPit(0, stakeZ(0), sand, 'sand', this.pitCell),
+      new SandPit(1, stakeZ(1), sand, 'sand', this.pitCell),
     ];
     this.scene.add(this.pits[0].mesh, this.pits[1].mesh);
     progress(0.72, 'Filling the bleachers');
@@ -196,7 +201,7 @@ export class Stage {
     for (const end of [0, 1] as const) {
       this.scene.remove(this.pits[end].mesh);
       this.pits[end].mesh.geometry.dispose();
-      this.pits[end] = new SandPit(end, stakeZ(end), kind === 'sand' ? this.maps.sand : this.maps.clay, kind);
+      this.pits[end] = new SandPit(end, stakeZ(end), kind === 'sand' ? this.maps.sand : this.maps.clay, kind, this.pitCell);
       this.scene.add(this.pits[end].mesh);
     }
     this.particles.setSandColor(kind === 'sand' ? new THREE.Color(0.77, 0.64, 0.46) : new THREE.Color(0.46, 0.5, 0.53));
@@ -230,8 +235,19 @@ export class Stage {
     this.shoes.get(id)?.offset.copy(offset);
   }
 
+  /** While true, shoe meshes are driven by the replay instead of physics. */
+  replaying = false;
+
+  setShoePose(id: number, p: THREE.Vector3, q: THREE.Quaternion) {
+    const v = this.shoes.get(id);
+    if (!v) return;
+    v.mesh.position.copy(p);
+    v.mesh.quaternion.copy(q);
+  }
+
   /** Sync shoe meshes from physics, carve the pits under moving shoes. */
   syncShoes(world: PhysicsWorld, dt: number) {
+    if (this.replaying) return;
     const p = new THREE.Vector3();
     const q = new THREE.Quaternion();
     for (const [id, vis] of this.shoes) {
@@ -306,6 +322,19 @@ export class Stage {
       pos: new THREE.Vector3(side * 0.95, 0.5, z - dir * 1.35),
       look: new THREE.Vector3(0, 0.08, z),
       fov: 36,
+    };
+  }
+
+  /** Low TV replay angle beside the stake; `k` slowly dollies in. */
+  replayShot(targetEnd: 0 | 1, side: 1 | -1, k: number): Shot {
+    const z = stakeZ(targetEnd);
+    const dir = targetEnd === 1 ? 1 : -1;
+    const r = 0.95 - k * 0.25;
+    const a = side * (0.95 + k * 0.25);
+    return {
+      pos: new THREE.Vector3(Math.sin(a) * r, 0.16 + k * 0.08, z - dir * Math.cos(a) * r),
+      look: new THREE.Vector3(0, 0.12, z),
+      fov: 34,
     };
   }
 
@@ -387,6 +416,45 @@ export class Stage {
     this.viewShift = fraction;
   }
   private viewShift = 0;
+
+  // Dynamic resolution: trade pixel density for frame rate on slower phones.
+  private maxRatio = 1;
+  private ratio = 1;
+  private frameAcc = 0;
+  private frameCount = 0;
+  private goodStreak = 0;
+
+  /** Feed real (unscaled) frame times; adjusts the render resolution every couple of seconds. */
+  adapt(rawDt: number) {
+    if (rawDt <= 0 || rawDt > 0.5) return;
+    this.frameAcc += rawDt;
+    this.frameCount++;
+    if (this.frameAcc < 2) return;
+    const avg = this.frameAcc / this.frameCount;
+    this.frameAcc = 0;
+    this.frameCount = 0;
+    const min = Math.min(1, this.maxRatio);
+    if (avg > 1 / 45 && this.ratio > min * 0.75 + 1e-3) {
+      this.ratio = Math.max(min * 0.75, this.ratio - 0.25);
+      this.goodStreak = 0;
+      this.applyRatio();
+    } else if (avg < 1 / 58) {
+      if (++this.goodStreak >= 3 && this.ratio < this.maxRatio - 1e-3) {
+        this.ratio = Math.min(this.maxRatio, this.ratio + 0.25);
+        this.goodStreak = 0;
+        this.applyRatio();
+      }
+    } else this.goodStreak = 0;
+  }
+
+  private applyRatio() {
+    this.renderer.setPixelRatio(this.ratio);
+    this.resize();
+  }
+
+  get pixelRatio() {
+    return this.ratio;
+  }
 
   resize() {
     const w = this.canvas.clientWidth || window.innerWidth;

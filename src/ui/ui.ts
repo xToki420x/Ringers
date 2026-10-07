@@ -39,6 +39,8 @@ export class UI {
   readonly labels = document.getElementById('labels')!;
   private calloutEl: HTMLElement;
   private hintEl: HTMLElement;
+  private replayEl: HTMLElement;
+  private badgeEl: HTMLElement;
   private readoutEl: HTMLElement;
   private sheetEl: HTMLElement | null = null;
   private pcards: [HTMLElement, HTMLElement];
@@ -54,12 +56,16 @@ export class UI {
     this.calloutEl = h('div', { class: 'callout' });
     this.hintEl = h('div', { class: 'hint' });
     this.readoutEl = h('div', { class: 'readout' });
+    this.replayEl = h('button', { class: 'replay-btn hidden' }, svg(icons.play), 'Instant replay');
+    this.badgeEl = h('div', { class: 'replay-badge hidden' }, h('i'), 'Replay');
     this.zoomBtn = h('button', { class: 'iconbtn', 'aria-label': 'Zoom', onclick: () => this.zoomBtn.classList.toggle('on', this.a.toggleZoom()) }, svg(icons.zoom));
     this.hud.append(
       h('div', { class: 'scorebar' }, this.pcards[0], this.centerEl, this.pcards[1]),
       h('div', { class: 'hud-buttons' }, h('button', { class: 'iconbtn', 'aria-label': 'Pause', onclick: () => this.a.pause() }, svg(icons.pause)), this.zoomBtn),
       this.calloutEl,
       this.readoutEl,
+      this.replayEl,
+      this.badgeEl,
       this.hintEl,
     );
     this.showHud(false);
@@ -497,6 +503,21 @@ export class UI {
     this.readoutEl.style.opacity = '1';
   }
 
+  replayButton(onClick: (() => void) | null) {
+    this.replayEl.classList.toggle('hidden', !onClick);
+    this.replayEl.onclick = onClick
+      ? (e) => {
+          e.stopPropagation();
+          this.a.tap();
+          onClick();
+        }
+      : null;
+  }
+
+  replayBadge(on: boolean) {
+    this.badgeEl.classList.toggle('hidden', !on);
+  }
+
   callout(big: string | null, sub?: string, plain = false, ms = 1800) {
     clearTimeout(this.calloutTimer);
     if (!big) {
@@ -558,7 +579,7 @@ export class UI {
     this.mount('gameover', h('div', { class: 'screen dim', style: 'justify-content:center' },
       h('div', { style: 'text-align:center;margin-bottom:16px' },
         h('div', { class: 'logo', style: 'font-size:clamp(48px,15vw,84px)' }, humanIndex === null ? 'FINAL' : won ? 'VICTORY' : 'DEFEAT'),
-        h('div', { style: 'font:600 15px var(--head);letter-spacing:.2em;color:var(--muted);text-transform:uppercase;margin-top:8px' }, `${names[m.winner!]} wins ${Math.max(...m.scores)}–${Math.min(...m.scores)}`),
+        h('div', { style: 'font:600 15px var(--head);letter-spacing:.2em;color:var(--muted);text-transform:uppercase;margin-top:8px' }, `${names[m.winner!]} ${names[m.winner!] === 'You' ? 'win' : 'wins'} ${Math.max(...m.scores)}–${Math.min(...m.scores)}`),
         extra ? h('div', { style: 'margin-top:8px;color:var(--gold);font:600 14px var(--head);letter-spacing:.1em;text-transform:uppercase' }, extra) : null,
       ),
       h('div', { class: 'panel', style: 'margin-bottom:16px' }, h('table', { class: 'std' },

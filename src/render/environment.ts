@@ -118,7 +118,7 @@ export class Environment {
     const lawnNormal = grass.normalMap.clone();
     lawnNormal.repeat.set(110, 110);
     lawnNormal.needsUpdate = true;
-    const lawnGeo = new THREE.PlaneGeometry(240, 240, 160, 160);
+    const lawnGeo = new THREE.PlaneGeometry(240, 240, 96, 96);
     lawnGeo.rotateX(-Math.PI / 2);
     const lp = lawnGeo.getAttribute('position');
     const lc: number[] = [];
@@ -163,7 +163,7 @@ export class Environment {
     trunkGeo.translate(0, 1.6, 0);
     const crowns: THREE.BufferGeometry[] = [];
     for (let k = 0; k < 4; k++) {
-      const g = new THREE.IcosahedronGeometry(1.6 - k * 0.15, 2);
+      const g = new THREE.IcosahedronGeometry(1.6 - k * 0.15, q === 'high' ? 2 : 1);
       const pos = g.getAttribute('position');
       for (let i = 0; i < pos.count; i++) {
         const v = new THREE.Vector3().fromBufferAttribute(pos, i);
@@ -422,15 +422,15 @@ export class Crowd {
     group.add(new THREE.Mesh(mergeGeometries(benches)!, benchMat), new THREE.Mesh(mergeGeometries(frames)!, frameMat));
 
     const n = this.seats.length;
-    const bodyGeo = new THREE.CapsuleGeometry(0.17, 0.42, 4, 10);
+    const bodyGeo = new THREE.CapsuleGeometry(0.17, 0.42, 3, 8);
     bodyGeo.translate(0, 0.38, 0);
     const legGeo = new THREE.BoxGeometry(0.3, 0.14, 0.42);
     legGeo.translate(0, 0.07, 0.17);
     const body = mergeGeometries([flat(bodyGeo), flat(legGeo)])!;
-    const headGeo = new THREE.SphereGeometry(0.11, 12, 10);
+    const headGeo = new THREE.SphereGeometry(0.11, 10, 7);
     headGeo.translate(0, 0.92, 0);
-    const capGeo = new THREE.SphereGeometry(0.118, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2);
-    const brim = new THREE.CylinderGeometry(0.12, 0.12, 0.012, 12, 1, false, -Math.PI / 2, Math.PI);
+    const capGeo = new THREE.SphereGeometry(0.118, 10, 4, 0, Math.PI * 2, 0, Math.PI / 2);
+    const brim = new THREE.CylinderGeometry(0.12, 0.12, 0.012, 8, 1, false, -Math.PI / 2, Math.PI);
     brim.scale(1, 1, 1.4);
     brim.translate(0, 0, 0.06);
     const capMerged = mergeGeometries([flat(capGeo), flat(brim)])!;

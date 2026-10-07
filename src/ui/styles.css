@@ -452,6 +452,59 @@ body {
   font-size: 22px;
 }
 
+.replay-btn {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 106px);
+  transform: translateX(-50%);
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(242, 193, 78, 0.6);
+  background: rgba(14, 19, 26, 0.85);
+  color: var(--gold);
+  font: 600 14px var(--head);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  animation: fadeUp 0.35s both;
+  cursor: pointer;
+}
+.replay-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.replay-badge {
+  position: absolute;
+  top: calc(var(--safe-top) + 84px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: rgba(200, 16, 46, 0.9);
+  color: #fff;
+  font: 700 13px var(--head);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.replay-badge i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  animation: blink 1s infinite;
+}
+@keyframes blink {
+  50% {
+    opacity: 0.2;
+  }
+}
+
 /* ------------------------------------------------------------ Screens */
 
 #screens {
