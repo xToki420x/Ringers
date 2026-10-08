@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Ringers</string>
+    <string name="title_activity_main">Ringers</string>
+    <string name="package_name">com.ringers.horseshoes</string>
+    <string name="custom_url_scheme">com.ringers.horseshoes</string>
+</resources>

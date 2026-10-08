@@ -1,0 +1,114 @@
+name: Package
+
+# Builds the installable packages:
+#   - Ringers-<version>.apk          Android app, installable by sideloading
+#   - Ringers-<version>-release.aab  Android App Bundle for Google Play (signed when secrets are set)
+#   - Ringers-<version>-web.zip      static web build (upload to any web host)
+# Every push builds them as workflow artifacts; pushing a tag like v1.0.0
+# also publishes them on a GitHub Release.
+
+on:
+  push:
+    branches: [main, 'claude/**']
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-and-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+      - name: Version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then VERSION="${GITHUB_REF_NAME#v}"; fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "RINGERS_VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
+          echo "RINGERS_VERSION_CODE=$((100 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+
+      - name: Web package
+        run: |
+          mkdir -p packages
+          (cd dist && zip -qr "../packages/Ringers-$VERSION-web.zip" .)
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Copy the game into the Android project
+        run: npx cap sync android
+
+      - name: Release signing key (optional)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            {
+              echo "RINGERS_KEYSTORE_FILE=$RUNNER_TEMP/release.jks"
+              echo "RINGERS_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+              echo "RINGERS_KEY_ALIAS=$KEY_ALIAS"
+              echo "RINGERS_KEY_PASSWORD=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
+              echo "SIGNED=1"
+            } >> "$GITHUB_ENV"
+            echo "Release builds will be signed."
+          else
+            echo "No signing secrets: the APK is debug-signed for sideloading and the AAB is unsigned."
+          fi
+
+      - name: Build Android
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug bundleRelease $([ -n "$SIGNED" ] && echo assembleRelease)
+
+      - name: Collect Android packages
+        run: |
+          if [ -n "$SIGNED" ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk "packages/Ringers-$VERSION.apk"
+          else
+            cp android/app/build/outputs/apk/debug/app-debug.apk "packages/Ringers-$VERSION.apk"
+          fi
+          cp android/app/build/outputs/bundle/release/app-release.aab "packages/Ringers-$VERSION-release.aab"
+          ls -la packages
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ringers-${{ env.VERSION }}
+          path: packages/*
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Ringers ${{ env.VERSION }}
+          files: packages/*
+          body: |
+            **Ringers ${{ env.VERSION }}** — championship horseshoes in 3D.
+
+            - **Android:** download `Ringers-${{ env.VERSION }}.apk` on your phone and open it (allow installs from your browser when asked).
+            - **Web:** unzip `Ringers-${{ env.VERSION }}-web.zip` onto any static web host, or open it locally with `npx serve`.
+            - **Google Play:** `Ringers-${{ env.VERSION }}-release.aab` is the bundle to upload (sign it, or add signing secrets to the repository).

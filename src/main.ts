@@ -28,7 +28,9 @@ boot().catch((err) => {
   if (msg) msg.textContent = 'This device could not start the 3D renderer.';
 });
 
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
+// Offline caching for the web version only; the native apps bundle their files.
+const isNative = !!(window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.();
+if ('serviceWorker' in navigator && import.meta.env.PROD && !isNative) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch(() => undefined);
   });

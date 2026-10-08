@@ -74,17 +74,46 @@ npm run build      # type-check + production build into dist/
 | `src/ui` | Screens, HUD and styles |
 | `tests` | Vitest suites |
 
-## Shipping to phones
+## Packages
 
-Ringers is an installable PWA (offline-capable service worker, full-screen portrait manifest). To ship to the
-App Store and Google Play it is set up for [Capacitor](https://capacitorjs.com):
+The **Package** workflow (`.github/workflows/package.yml`) builds everything on GitHub:
+
+| File | What it is |
+| --- | --- |
+| `Ringers-<version>.apk` | Android app. Download it on an Android phone and open it to install. |
+| `Ringers-<version>-release.aab` | Android App Bundle for the Google Play Console. |
+| `Ringers-<version>-web.zip` | The web version. Unzip onto any static web host; it installs to the home screen and works offline. |
+
+Every push uploads these as workflow artifacts. Pushing a version tag publishes a GitHub Release:
 
 ```bash
-npm run build
-npx cap add ios        # requires Xcode
-npx cap add android    # requires Android Studio
-npm run cap:sync
-npx cap open ios       # or: npx cap open android
+git tag v1.0.1 && git push origin v1.0.1
+```
+
+**Signing.** Without secrets, the APK is debug-signed (fine for sideloading; uninstall before installing a
+build from a different machine) and the AAB is unsigned. To sign release builds, add these repository secrets:
+`ANDROID_KEYSTORE_BASE64` (the keystore, base64-encoded), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and
+`ANDROID_KEY_PASSWORD`. Create a keystore with:
+
+```bash
+keytool -genkeypair -v -keystore ringers.jks -alias ringers -keyalg RSA -keysize 2048 -validity 10000
+base64 -w0 ringers.jks   # paste as ANDROID_KEYSTORE_BASE64
+```
+
+**iPhone.** The Xcode project lives in `ios/`. On a Mac with Xcode:
+
+```bash
+npm ci && npm run build && npx cap sync ios
+npx cap open ios   # choose your team under Signing & Capabilities, then Run or Product → Archive
+```
+
+Installing on an iPhone or shipping to the App Store needs an Apple Developer account.
+
+**Building Android locally** (Android Studio or the Android SDK plus JDK 21):
+
+```bash
+npm run build && npx cap sync android
+cd android && ./gradlew assembleDebug   # app/build/outputs/apk/debug/app-debug.apk
 ```
 
 ## Notes

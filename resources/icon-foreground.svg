@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-136 -136 784 784"><defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="75%">
+      <stop offset="0" stop-color="#22324a"/>
+      <stop offset="1" stop-color="#0b0f14"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff2c4"/>
+      <stop offset=".45" stop-color="#ffd56a"/>
+      <stop offset="1" stop-color="#e3870f"/>
+    </linearGradient>
+    <linearGradient id="steel" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5d6268"/>
+      <stop offset=".5" stop-color="#c9ced4"/>
+      <stop offset="1" stop-color="#4b5056"/>
+    </linearGradient>
+  </defs><ellipse cx="256" cy="420" rx="170" ry="34" fill="#c9a874" opacity=".9"/>
+  <rect x="244" y="150" width="24" height="270" rx="10" fill="url(#steel)" transform="rotate(-6 256 420)"/>
+  <path d="M256 92c-86 0-150 62-150 152 0 66 30 128 62 176 6 9 18 11 26 5l22-15c8-6 10-17 5-25-25-38-44-86-44-138 0-50 34-86 79-86s79 36 79 86c0 52-19 100-44 138-5 8-3 19 5 25l22 15c8 6 20 4 26-5 32-48 62-110 62-176 0-90-64-152-150-152z" fill="url(#gold)" transform="rotate(180 256 270) translate(0 -40)"/>
+</svg>
