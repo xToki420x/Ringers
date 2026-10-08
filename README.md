@@ -7,6 +7,9 @@ shoes follow the NHPA rule book; shoes fly, flip and land under a purpose-built 
 game is played the way tournaments are played — cancellation or count-all scoring, two shoes a pitcher, walk
 to the other end, up through a 64-pitcher world championship.
 
+**Play it now:** https://xtoki420x.github.io/Ringers/ — open it on any phone. On iPhone, tap Share →
+Add to Home Screen to install it as a full-screen app that also works offline.
+
 ## Highlights
 
 - **Physics you can feel.** Each shoe is a rigid body with an inertia tensor integrated from its forged shape
