@@ -84,10 +84,12 @@ The **Package** workflow (`.github/workflows/package.yml`) builds everything on 
 | `Ringers-<version>-release.aab` | Android App Bundle for the Google Play Console. |
 | `Ringers-<version>-web.zip` | The web version. Unzip onto any static web host; it installs to the home screen and works offline. |
 
-Every push uploads these as workflow artifacts. Pushing a version tag publishes a GitHub Release:
+Every push uploads these as workflow artifacts. A GitHub Release is published automatically the first time a
+new `version` from `package.json` is pushed (so bump the version to cut a release), or when you push a tag:
 
 ```bash
-git tag v1.0.1 && git push origin v1.0.1
+npm version 1.0.1 --no-git-tag-version && git commit -am "Release 1.0.1" && git push
+# or: git tag v1.0.1 && git push origin v1.0.1
 ```
 
 **Signing.** Without secrets, the APK is debug-signed (fine for sideloading; uninstall before installing a

@@ -4,8 +4,9 @@ name: Package
 #   - Ringers-<version>.apk          Android app, installable by sideloading
 #   - Ringers-<version>-release.aab  Android App Bundle for Google Play (signed when secrets are set)
 #   - Ringers-<version>-web.zip      static web build (upload to any web host)
-# Every push builds them as workflow artifacts; pushing a tag like v1.0.0
-# also publishes them on a GitHub Release.
+# Every push builds them as workflow artifacts. A GitHub Release is published
+# when a tag like v1.0.0 is pushed, or automatically the first time a new
+# "version" from package.json is pushed (bump the version to cut a release).
 
 on:
   push:
@@ -100,10 +101,25 @@ jobs:
           name: Ringers-${{ env.VERSION }}
           path: packages/*
 
+      - name: Is this version released yet?
+        id: released
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then echo "publish=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "v$VERSION is already released; bump package.json to publish a new release."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: steps.released.outputs.publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
           name: Ringers ${{ env.VERSION }}
           files: packages/*
           body: |
