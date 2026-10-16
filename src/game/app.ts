@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BRANDS, GRIPS, type Loadout } from '../core/equipment';
+import { GRIPS, MODELS, factoryLoadout, type Loadout } from '../core/equipment';
 import { formatDistance, judgeShoe, type ShoeResult } from '../core/scoring';
 import { PIT } from '../core/constants';
 import { haptic, sfx } from '../audio/sfx';
@@ -8,7 +8,7 @@ import { PHYSICS_DT, PhysicsWorld, stakeZ, type ContactEvent } from '../physics/
 import { DEFAULT_ARC, planRelease, ZERO_ERROR, type DeliveryError, type ReleasePlan } from '../physics/throwModel';
 import { Pitcher } from '../render/pitcher';
 import { Stage } from '../render/stage';
-import { createShoeMesh } from '../render/shoeMesh';
+import { applyShoeLook, createShoeMesh } from '../render/shoeMesh';
 import { UI, type UIActions } from '../ui/ui';
 import { aiDeliveryError } from './ai';
 import { Match, ringerPct, type MatchConfig, type PlayerInfo } from './match';
@@ -69,7 +69,8 @@ export class App implements UIActions {
   private zoom = false;
   private menuKind: 'orbit' | 'shop' = 'orbit';
   private decor: THREE.Object3D[] = [];
-  private shopShoe: THREE.Mesh | null = null;
+  private shopShoe: ReturnType<typeof createShoeMesh> | null = null;
+  private shopShoeModel = '';
   private last = performance.now();
   private practice = { shoes: 0, ringers: 0, inCount: 0, streak: 0, pairs: 0, pitchFrom: 0 as 0 | 1 };
   private ringerStreak = 0;
@@ -160,15 +161,22 @@ export class App implements UIActions {
   }
 
   previewLoadout(l: Loadout | null) {
+    if (l && this.shopShoe && this.shopShoeModel === `${l.model}|${l.weight}`) {
+      // Same shoe, new colour or finish: recolour in place (used while dragging the sliders).
+      applyShoeLook(this.shopShoe.material, l);
+      return;
+    }
     if (this.shopShoe) {
       this.stage.scene.remove(this.shopShoe);
+      this.shopShoe.material.dispose();
       this.shopShoe = null;
     }
     if (!l) {
       this.setMenuBackdrop('orbit');
       return;
     }
-    this.shopShoe = createShoeMesh(l);
+    this.shopShoe = createShoeMesh(l, this.stage.envMap, true);
+    this.shopShoeModel = `${l.model}|${l.weight}`;
     this.shopShoe.position.set(0, 0.34, stakeZ(1) - 0.85);
     this.stage.scene.add(this.shopShoe);
   }
@@ -177,6 +185,7 @@ export class App implements UIActions {
     this.menuKind = kind;
     if (kind === 'orbit' && this.shopShoe) {
       this.stage.scene.remove(this.shopShoe);
+      this.shopShoe.material.dispose();
       this.shopShoe = null;
     }
   }
@@ -285,7 +294,7 @@ export class App implements UIActions {
     this.prepareCourt(cfg);
     this.ui.setPractice(false);
     this.updateScoreboards();
-    this.ui.versus([this.data.name, opp.name], [`${GRIPS[this.data.grip].name} · ${BRANDS[this.data.loadout.brand].name}`, `${(opp.rating ?? 0).toFixed(0)}% ringers · ${GRIPS[opp.grip].short}`], subtitle);
+    this.ui.versus([this.data.name, opp.name], [`${GRIPS[this.data.grip].name} · ${MODELS[this.data.loadout.model].name}`, `${(opp.rating ?? 0).toFixed(0)}% ringers · ${GRIPS[opp.grip].short}`], subtitle);
     this.setPhase('intro');
     // Fly-in over the court.
     const z = stakeZ(this.match.targetEnd);
@@ -526,7 +535,7 @@ export class App implements UIActions {
           const av = this.stage.pitchers[this.pitcherIndex()];
           av.startDelivery();
           // The pitcher carries a real shoe through the swing.
-          this.heldShoe = createShoeMesh(this.currentPlayer()!.loadout);
+          this.heldShoe = createShoeMesh(this.currentPlayer()!.loadout, this.stage.envMap);
           this.heldShoe.position.set(0, -0.06, 0.02);
           this.heldShoe.rotation.set(Math.PI / 2, 0, 0);
           av.hand.add(this.heldShoe);
@@ -592,7 +601,7 @@ export class App implements UIActions {
       this.shopShoe.rotation.set(-0.7 + Math.sin(t * 0.7) * 0.1, t * 0.6, 0, 'YXZ');
       this.shopShoe.position.y = 0.34 + Math.sin(t * 1.3) * 0.01;
       const z = stakeZ(1);
-      this.stage.rig.set({ pos: new THREE.Vector3(0.1, 0.74, z - 1.98), look: new THREE.Vector3(0, 0.34, z - 0.85), fov: 26 }, false, 3);
+      this.stage.rig.set({ pos: new THREE.Vector3(0.1, 0.8, z - 2.3), look: new THREE.Vector3(0, 0.34, z - 0.85), fov: 26 }, false, 3);
     } else {
       this.stage.rig.set(this.stage.menuShot(performance.now() / 1000), false, 2);
     }
@@ -653,7 +662,7 @@ export class App implements UIActions {
     this.replayT += dt * 0.28;
     for (const r of this.recEvents) {
       if (r.t > prev && r.t <= this.replayT) {
-        if (r.e.kind === 'stake') sfx.stake(r.e.speed, BRANDS[(this.physics.shoes.get(r.e.shoeId)?.loadout ?? this.data.loadout).brand].hardness);
+        if (r.e.kind === 'stake') sfx.stake(r.e.speed, MODELS[(this.physics.shoes.get(r.e.shoeId)?.loadout ?? this.data.loadout).model].hardness);
         else if (r.e.kind === 'shoe') sfx.clink(r.e.speed);
         else if (r.e.kind === 'pit' && r.e.speed > 0.3) {
           sfx.thud(r.e.speed * 0.8, this.physics.pit);
@@ -729,7 +738,7 @@ export class App implements UIActions {
     const shoe = this.live.find((l) => l.id === e.shoeId);
     if (!shoe) return;
     const pan = 0;
-    const hard = BRANDS[(this.physics.shoes.get(e.shoeId)?.loadout ?? this.data.loadout).brand].hardness;
+    const hard = MODELS[(this.physics.shoes.get(e.shoeId)?.loadout ?? this.data.loadout).model].hardness;
     if (shoe.firstContact < 0 && e.kind !== 'shoe') shoe.firstContact = this.phaseT;
     if ((e.kind === 'pit' || e.kind === 'stake' || e.kind === 'ground' || e.kind === 'board') && shoe === this.thrown && shoe.landedAt < 0) shoe.landedAt = this.phaseT;
     switch (e.kind) {
@@ -991,10 +1000,6 @@ export class App implements UIActions {
         if (t.stage === 'done' && t.champion === HUMAN_ID) {
           c.titles++;
           extra = 'World Champion!';
-          if (!this.data.unlocked.includes('ozark')) {
-            this.data.unlocked.push('ozark');
-            extra += ' · Ozark Hammer shoes unlocked';
-          }
         } else if (t.humanEliminated) extra = 'Eliminated';
         else extra = stageLabel(t);
       }
@@ -1020,13 +1025,13 @@ export class App implements UIActions {
   private placeDecor() {
     this.clearDecor();
     const z = stakeZ(1);
-    const a = createShoeMesh(this.data.loadout);
+    const a = createShoeMesh(this.data.loadout, this.stage.envMap);
     a.position.set(0.004, 0.003, z + 0.05);
     a.rotation.y = 0.12;
-    const b = createShoeMesh({ brand: 'thunder', shape: 'hook', weight: '2-10', finish: 'blue' });
+    const b = createShoeMesh(factoryLoadout(this.data.loadout.model === 'legend' ? 'cadet' : 'legend', '2-10'), this.stage.envMap);
     b.position.set(-0.01, 0.017, z + 0.035);
     b.rotation.set(0.12, -0.35, 0.05);
-    const c2 = createShoeMesh({ brand: 'prairie', shape: 'wide', weight: '2-8', finish: 'red' });
+    const c2 = createShoeMesh(factoryLoadout(this.data.loadout.model === 'bulldog' ? 'competition' : 'bulldog'), this.stage.envMap);
     c2.position.set(0.16, 0.002, z - 0.2);
     c2.rotation.y = 2.4;
     for (const m of [a, b, c2]) {

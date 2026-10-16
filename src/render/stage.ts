@@ -92,7 +92,7 @@ export class Stage {
   particles!: Particles;
   pitchers!: [Pitcher, Pitcher];
   private shoes = new Map<number, ShoeVisual>();
-  private envMap: THREE.Texture | null = null;
+  envMap: THREE.Texture | null = null;
   private maps: { sand: MapSet; clay: MapSet; grass: MapSet } | null = null;
   pitKind: PitMaterial = 'sand';
   /** Shoe held in first-person view. */
@@ -446,7 +446,7 @@ export class Stage {
   // ---------------------------------------------------------- first person
 
   showViewShoe(l: Loadout | null) {
-    const key = l ? `${l.brand}${l.shape}${l.finish}` : '';
+    const key = l ? `${l.model}|${l.weight}|${l.finish}|${l.color.join(',')}` : '';
     if (key !== this.viewShoeLoadout) {
       if (this.viewShoe) this.camera.remove(this.viewShoe);
       this.viewShoe = l ? createShoeMesh(l, this.envMap) : null;

@@ -44,11 +44,12 @@ describe('physics outcomes', () => {
     expect(throwOnce(delivery('turn134')).result.ringer).toBe(true);
   });
   it('every shoe in the catalogue rings with a perfect flip', () => {
-    for (const shape of ['classic', 'hook', 'wide', 'taper'] as const)
-      for (const weight of ['2-2', '2-10'] as const) {
-        const o = throwOnce(delivery(), ZERO_ERROR, { ...DEFAULT_LOADOUT, shape, weight });
-        expect(o.result.ringer, `${shape} ${weight}`).toBe(true);
-      }
+    for (const model of ['bulldog', 'legend', 'cadet', 'competition'] as const)
+      for (const weight of ['2-2', '2-10'] as const)
+        for (const grip of ['flip', 'turn134'] as const) {
+          const o = throwOnce(delivery(grip), ZERO_ERROR, { ...DEFAULT_LOADOUT, model, weight });
+          expect(o.result.ringer, `${model} ${weight} ${grip}`).toBe(true);
+        }
   });
   it('a badly short shoe lands short and out of the ringer', () => {
     const o = throwOnce(delivery(), { ...ZERO_ERROR, power: -0.03 });

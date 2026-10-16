@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BRANDS, FINISHES, GRIPS, SHAPES, WEIGHTS, shoeRatings, shoeTraits, type BrandId, type FinishId, type Grip, type Loadout, type ShapeId, type WeightId } from '../core/equipment';
+import { COLOR_PRESETS, FINISHES, GRIPS, MODELS, WEIGHTS, hsvToCss, sameLoadout, shoeRatings, shoeTraits, type FinishId, type Grip, type Hsv, type Loadout, type ModelId, type WeightId } from '../core/equipment';
 import { shoeGeometry } from '../core/shoeShape';
 import { formatDistance, type InningScore, type ShoeResult } from '../core/scoring';
 import { DIFFICULTY, type Difficulty } from '../input/throwControl';
@@ -132,7 +132,7 @@ export class UI {
           btn('Quick Match', icons.play, () => this.quickMatch(), 'vs. the tour', true),
           btn(t ? 'Championship' : 'World Championship', icons.trophy, () => this.tournamentHub(), t ? stageLabel(t) : '64-pitcher field'),
           btn('Practice', icons.target, () => this.a.startPractice(), 'free pitching'),
-          btn('Pro Shop', icons.bag, () => this.shop(), 'brands · shapes · weights'),
+          btn('Pro Shop', icons.bag, () => this.shop(), 'models · weights · colors'),
           btn('Career', icons.chart, () => this.career()),
           h(
             'div',
@@ -158,7 +158,7 @@ export class UI {
             h('div', { class: 'sub' }, o.hometown),
             h('div', { class: 'rt' }, `${o.rating.toFixed(0)}%`, h('span', null, 'ringers')),
             meter(o.rating),
-            h('div', { class: 'sub', style: 'margin-top:8px' }, `${GRIPS[o.grip].short} · ${BRANDS[o.loadout.brand].name}`),
+            h('div', { class: 'sub', style: 'margin-top:8px' }, `${GRIPS[o.grip].short} · ${MODELS[o.loadout.model].name}`),
           ),
         ),
       );
@@ -213,36 +213,114 @@ export class UI {
   shop(back: () => void = () => this.title()) {
     this.a.setMenuBackdrop('shop');
     const d = this.a.data;
-    const l: Loadout = { ...d.loadout };
+    const l: Loadout = { ...d.loadout, color: [...d.loadout.color] };
     const panel = h('div', { class: 'shop-panel' });
-    const isLocked = (b: BrandId) => !!BRANDS[b].locked && !d.unlocked.includes(b);
+    let equipBtn: HTMLButtonElement;
+    const refreshEquip = () => {
+      const equipped = sameLoadout(d.loadout, l);
+      equipBtn.className = `btn ${equipped ? '' : 'primary'} center`;
+      equipBtn.disabled = equipped;
+      equipBtn.textContent = equipped ? 'Equipped' : 'Equip these shoes';
+    };
+    const colorSection = (): HTMLElement => {
+      const swatch = h('div', { class: 'color-now' });
+      const hex = h('span', { class: 'color-hex' });
+      const sliders: { input: HTMLInputElement; track: (c: Hsv) => string; get: (c: Hsv) => number; set: (c: Hsv, v: number) => void }[] = [
+        {
+          input: h('input', { type: 'range', min: '0', max: '360', step: '1', 'aria-label': 'Hue' }),
+          track: () => `linear-gradient(90deg,${[0, 60, 120, 180, 240, 300, 360].map((hue) => hsvToCss([hue, 0.85, 0.95])).join(',')})`,
+          get: (c) => c[0],
+          set: (c, v) => (c[0] = v % 360),
+        },
+        {
+          input: h('input', { type: 'range', min: '0', max: '100', step: '1', 'aria-label': 'Color strength' }),
+          track: (c) => `linear-gradient(90deg,${hsvToCss([c[0], 0, Math.max(0.4, c[2])])},${hsvToCss([c[0], 1, Math.max(0.4, c[2])])})`,
+          get: (c) => Math.round(c[1] * 100),
+          set: (c, v) => (c[1] = v / 100),
+        },
+        {
+          input: h('input', { type: 'range', min: '0', max: '100', step: '1', 'aria-label': 'Brightness' }),
+          track: (c) => `linear-gradient(90deg,#000,${hsvToCss([c[0], c[1], 1])})`,
+          get: (c) => Math.round(c[2] * 100),
+          set: (c, v) => (c[2] = v / 100),
+        },
+      ];
+      const presets = COLOR_PRESETS.map((p) =>
+        h('div', {
+          class: 'swatch sm',
+          title: p.name,
+          style: `background:${hsvToCss(p.color)}`,
+          onclick: () => {
+            l.color = [...p.color];
+            l.finish = p.finish ?? (FINISHES[l.finish].metalness > 0.5 ? 'gloss' : l.finish);
+            this.a.tap();
+            render();
+          },
+        }),
+      );
+      const sync = () => {
+        const css = hsvToCss(l.color);
+        swatch.style.background = css;
+        hex.textContent = css.toUpperCase();
+        for (const s of sliders) {
+          s.input.value = String(s.get(l.color));
+          s.input.style.setProperty('--track', s.track(l.color));
+          s.input.style.setProperty('--thumb', css);
+        }
+        presets.forEach((el, i) => el.classList.toggle('on', COLOR_PRESETS[i].color.every((v, k) => Math.abs(v - l.color[k]) < 1e-6)));
+      };
+      for (const s of sliders)
+        s.input.addEventListener('input', () => {
+          s.set(l.color, Number(s.input.value));
+          sync();
+          this.a.previewLoadout(l);
+          refreshEquip();
+        });
+      sync();
+      const row = (name: string, input: HTMLElement) => h('label', { class: 'slider-row' }, h('span', null, name), input);
+      return h('div', { class: 'color-box' },
+        h('div', { class: 'label color-label' }, 'Color', swatch, hex),
+        h('div', { class: 'swatches presets' }, ...presets),
+        row('Hue', sliders[0].input),
+        row('Strength', sliders[1].input),
+        row('Bright', sliders[2].input),
+      );
+    };
     const render = () => {
-      const brand = BRANDS[l.brand];
-      if (!brand.finishes.includes(l.finish)) l.finish = brand.finishes[0];
+      const model = MODELS[l.model];
       this.a.previewLoadout(l);
-      const g = shoeGeometry(l.shape);
+      const g = shoeGeometry(l.model);
       const r = shoeRatings(l);
       const t = shoeTraits(l);
-      const locked = isLocked(l.brand);
-      const equipped = d.loadout.brand === l.brand && d.loadout.shape === l.shape && d.loadout.weight === l.weight && d.loadout.finish === l.finish;
+      equipBtn = h('button', {
+        onclick: () => { d.loadout = { ...l, color: [...l.color] }; this.a.setLoadout(d.loadout); this.a.tap('confirm'); this.toast('Equipped'); refreshEquip(); },
+      });
       panel.replaceChildren(
-        h('div', { class: 'brand-head' }, h('div', { class: 'bn' }, brand.name), h('div', { class: 'hd' }, `${brand.hardness} steel`)),
-        h('div', { class: 'tagline' }, brand.tagline),
-        h('div', { class: 'label' }, 'Brand'),
-        h('div', { class: 'chips', style: 'margin-bottom:12px' }, ...(Object.keys(BRANDS) as BrandId[]).map((b) =>
-          h('button', { class: `${b === l.brand ? 'on' : ''}${isLocked(b) ? ' locked' : ''}`, onclick: () => { l.brand = b; this.a.tap(); render(); } }, BRANDS[b].name, isLocked(b) ? ' 🔒' : ''),
-        )),
-        h('div', { class: 'label' }, `Shape — ${SHAPES[l.shape].blurb}`),
-        h('div', { class: 'chips', style: 'margin-bottom:12px' }, ...(Object.keys(SHAPES) as ShapeId[]).map((s) =>
-          h('button', { class: s === l.shape ? 'on' : '', onclick: () => { l.shape = s; this.a.tap(); render(); } }, SHAPES[s].name),
+        h('div', { class: 'brand-head' }, h('div', { class: 'bn' }, model.name), h('div', { class: 'hd' }, `${model.hardness} steel`)),
+        h('div', { class: 'tagline' }, model.tagline),
+        h('div', { class: 'label' }, 'Model'),
+        h('div', { class: 'chips', style: 'margin-bottom:12px' }, ...(Object.keys(MODELS) as ModelId[]).map((m) =>
+          h('button', {
+            class: m === l.model ? 'on' : '',
+            onclick: () => {
+              if (m === l.model) return;
+              // A new model arrives in its factory colours.
+              l.model = m;
+              l.finish = MODELS[m].finish;
+              l.color = [...MODELS[m].color];
+              this.a.tap();
+              render();
+            },
+          }, MODELS[m].name),
         )),
         h('div', { class: 'label' }, 'Weight'),
         h('div', { class: 'chips', style: 'margin-bottom:12px' }, ...(Object.keys(WEIGHTS) as WeightId[]).map((w) =>
           h('button', { class: w === l.weight ? 'on' : '', onclick: () => { l.weight = w; this.a.tap(); render(); } }, WEIGHTS[w].label),
         )),
-        h('div', { class: 'label' }, `Finish — ${FINISHES[l.finish].name}`),
-        h('div', { class: 'swatches', style: 'margin-bottom:6px' }, ...brand.finishes.map((f: FinishId) =>
-          h('div', { class: `swatch${f === l.finish ? ' on' : ''}`, style: `background:${FINISHES[f].color}`, title: FINISHES[f].name, onclick: () => { l.finish = f; this.a.tap(); render(); } }),
+        colorSection(),
+        h('div', { class: 'label' }, 'Finish'),
+        h('div', { class: 'chips', style: 'margin-bottom:6px' }, ...(Object.keys(FINISHES) as FinishId[]).map((f) =>
+          h('button', { class: f === l.finish ? 'on' : '', onclick: () => { l.finish = f; this.a.tap(); this.a.previewLoadout(l); render(); } }, FINISHES[f].name),
         )),
         h('div', { class: 'bars' },
           ...([['Catch', r.catch], ['Hold', r.hold], ['Stability', r.stability], ['Deadness', r.deadness], ['Control', r.control]] as [string, number][]).flatMap(([k, v]) => [
@@ -250,12 +328,9 @@ export class UI {
           ]),
         ),
         h('div', { class: 'spec', html: `<b>${(g.width * IN_PER_M).toFixed(2)}″</b> wide · <b>${(g.length * IN_PER_M).toFixed(2)}″</b> long · <b>${(g.opening * IN_PER_M).toFixed(2)}″</b> opening · <b>${WEIGHTS[l.weight].label}</b> · restitution <b>${t.restitution.toFixed(2)}</b> · NHPA legal ✓` }),
-        h('button', {
-          class: `btn ${equipped ? '' : 'primary'} center`,
-          disabled: locked || equipped ? true : undefined,
-          onclick: () => { d.loadout = { ...l }; this.a.setLoadout(d.loadout); this.a.tap('confirm'); this.toast('Equipped'); render(); },
-        }, locked ? 'Win a championship to unlock' : equipped ? 'Equipped' : 'Equip these shoes'),
+        equipBtn,
       );
+      refreshEquip();
     };
     render();
     this.mount('shop', h('div', { class: 'screen', style: 'background:linear-gradient(180deg,rgba(8,11,16,.5),rgba(8,11,16,0) 18%)' },
@@ -319,7 +394,7 @@ export class UI {
       h('button', { class: 'btn center', style: 'margin-top:16px;color:var(--red)', onclick: () => {
         this.ask('Erase all progress, stats and settings?', 'Reset', () => { this.a.resetData(); this.toast('Progress reset'); back(); });
       } }, 'Reset progress'),
-      h('p', { style: 'color:var(--muted);font-size:11px;text-align:center;margin-top:14px' }, 'Ringers · Court, stake and shoe dimensions follow NHPA rules. Brands are fictional.'),
+      h('p', { style: 'color:var(--muted);font-size:11px;text-align:center;margin-top:14px' }, 'Ringers · Court, stake and shoe dimensions follow NHPA rules.'),
     ));
   }
 

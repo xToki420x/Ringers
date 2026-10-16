@@ -186,7 +186,7 @@ export class ShoeBody {
     readonly owner: number,
     readonly loadout: Loadout,
   ) {
-    this.geom = shoeGeometry(loadout.shape);
+    this.geom = shoeGeometry(loadout.model);
     const traits = shoeTraits(loadout);
     this.mass = traits.massKg;
     this.invMass = 1 / this.mass;
@@ -231,12 +231,7 @@ export class ShoeBody {
     this.boundR = br;
     this.ws = new Float64Array(sp.length * 3);
     const coarse: number[] = [];
-    const bandR = this.geom.thickness / 2 - 1e-4;
-    let band = 0;
-    for (let i = 0; i < sp.length; i++) {
-      if (sp[i].r < bandR) coarse.push(i);
-      else if (band++ % 4 < 2) coarse.push(i); // every other pair of band spheres
-    }
+    for (let i = 0; i < sp.length; i++) if (sp[i].coarse) coarse.push(i);
     this.coarse = Uint16Array.from(coarse);
     this.sand = new Float64Array(this.geom.bottomSamples.length * 3);
     this.geom.bottomSamples.forEach((b, i) => {

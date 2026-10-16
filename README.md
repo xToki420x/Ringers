@@ -24,10 +24,13 @@ Add to Home Screen to install it as a full-screen app that also works offline.
 - **NHPA judging.** Ringers use the straightedge rule (a line across both heel calks must clear the stake);
   shoes within 6″ are in count; leaners count; backboard shoes are foul. Cancellation scoring (ringers cancel,
   one scorer per inning, closest shoe 1, two closest 2, ringer + closest 4, double ringer 6) and count-all.
-- **The pro shop.** Six (fictional) brands with soft, medium or hard steel — which really changes how shoes
-  die on the stake — four legal shapes (Classic, Hook Heel, Wide Body, Tournament Taper), five weights from
-  2 lb 2 oz to the 2 lb 10 oz limit, and painted, forged, chrome, copper and gold finishes with stamped brands.
-  Every combination is verified against NHPA size, opening and weight limits in the test suite.
+- **The pro shop.** Four pitching-shoe models modelled on real forged shoes — the square-shouldered
+  Bulldog, the round-bowed Legend with block calks and a thumb notch, the tall Cadet with pyramid calks and
+  sharp hooks, and the drop-forged Competition with its broad toe panel — each built from its own plan
+  outline (bow, legs, heel cut, hook and throat) with real heel and toe calks and a stamped badge. Soft,
+  medium or hard steel really changes how shoes die on the stake. Five weights from 2 lb 2 oz to the 2 lb 10 oz
+  limit, and any colour you like from hue, strength and brightness sliders in gloss, satin, metal or chrome.
+  Every model is verified against NHPA size, opening and weight limits in the test suite.
 - **A full championship.** 64 pitchers: sixteen round-robin pools of four, then a 32-pitcher single-elimination
   bracket to the title. AI opponents throw through the same physics with skill-calibrated release errors.
 - **Broadcast presentation.** Every shoe is followed through the air in slow motion by a chase camera so you
@@ -123,4 +126,4 @@ cd android && ./gradlew assembleDebug   # app/build/outputs/apk/debug/app-debug.
 
 ## Notes
 
-Brand names in the game are fictional. Court, stake, pit and shoe dimensions follow the NHPA Official Rules.
+Court, stake, pit and shoe dimensions follow the NHPA Official Rules.

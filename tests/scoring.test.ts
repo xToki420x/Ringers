@@ -10,7 +10,7 @@ const R = (owner: number, ringer: boolean, dIn = 0): ShoeResult => ({
 });
 
 describe('ringer judging', () => {
-  const g = shoeGeometry('classic');
+  const g = shoeGeometry('competition');
   const stake = makeStake(1);
   const flat = new Quaternion();
   it('a shoe resting flat around the stake is a ringer', () => {

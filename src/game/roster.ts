@@ -1,4 +1,4 @@
-import { BRANDS, SHAPES, type BrandId, type Grip, type Loadout, type ShapeId, type WeightId } from '../core/equipment';
+import { COLOR_PRESETS, MODELS, factoryLoadout, type Grip, type Loadout, type ModelId, type WeightId } from '../core/equipment';
 import { mulberry32 } from '../physics/errorModel';
 import type { PlayerInfo } from './match';
 
@@ -31,12 +31,12 @@ function pick<T>(arr: readonly T[], rng: () => number): T {
 }
 
 export function randomLoadout(rng: () => number): Loadout {
-  const brands = (Object.keys(BRANDS) as BrandId[]);
-  const brand = pick(brands, rng);
-  const shape = pick(Object.keys(SHAPES) as ShapeId[], rng);
+  const model = pick(Object.keys(MODELS) as ModelId[], rng);
   const weight = pick(['2-6', '2-8', '2-8', '2-10', '2-10'] as WeightId[], rng);
-  const finish = pick(BRANDS[brand].finishes, rng);
-  return { brand, shape, weight, finish };
+  // Half the tour pitches factory colours; the rest have their own.
+  if (rng() < 0.5) return factoryLoadout(model, weight);
+  const preset = pick(COLOR_PRESETS, rng);
+  return { model, weight, finish: preset.finish ?? (rng() < 0.75 ? 'gloss' : 'satin'), color: [...preset.color] };
 }
 
 export function makeOpponent(seed: number, rating: number): Opponent {

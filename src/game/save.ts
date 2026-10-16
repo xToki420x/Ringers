@@ -1,5 +1,5 @@
 import type { PitchDistance } from '../core/constants';
-import { DEFAULT_LOADOUT, sanitizeLoadout, type BrandId, type Grip, type Loadout } from '../core/equipment';
+import { DEFAULT_LOADOUT, sanitizeLoadout, type Grip, type Loadout } from '../core/equipment';
 import type { ScoringMode } from '../core/scoring';
 import type { Difficulty } from '../input/throwControl';
 import type { PitMaterial } from '../physics/physicsWorld';
@@ -51,7 +51,6 @@ export interface SaveData {
   loadout: Loadout;
   grip: Grip;
   career: Career;
-  unlocked: BrandId[];
   quick: QuickPrefs;
   tournament: Tournament | null;
   seenTutorial: boolean;
@@ -72,13 +71,12 @@ export function defaults(): SaveData {
     version: 1,
     name: 'You',
     settings: { volume: 0.8, haptics: true, hand: 1, difficulty: 'amateur', guides: true, quality: defaultQuality(), metric: false, slowmo: true, fastAi: false },
-    loadout: { ...DEFAULT_LOADOUT },
+    loadout: { ...DEFAULT_LOADOUT, color: [...DEFAULT_LOADOUT.color] },
     grip: 'flip',
     career: {
       games: 0, wins: 0, shoes: 0, ringers: 0, doubles: 0, inCount: 0, countPoints: 0, bestRingerPct: 0,
       longestRingerStreak: 0, titles: 0, tournaments: 0, practiceShoes: 0, practiceRingers: 0,
     },
-    unlocked: [],
     quick: { opponent: 1, mode: 'cancellation', target: 21, distance: 40, pit: 'sand', time: 'afternoon' },
     tournament: null,
     seenTutorial: false,
@@ -91,6 +89,8 @@ export function load(): SaveData {
     const raw = localStorage.getItem(KEY);
     if (!raw) return d;
     const s = JSON.parse(raw) as Partial<SaveData>;
+    // Shoes saved before the current catalogue are mapped onto it.
+    if (s.tournament?.entrants) for (const e of Object.values(s.tournament.entrants)) e.loadout = sanitizeLoadout(e.loadout);
     return {
       ...d,
       ...s,

@@ -1,205 +1,198 @@
 import { IN, LB_KG, OZ_KG, SHOE_LIMITS } from './constants';
 
 /**
- * Pitching shoe catalogue. Every combination of brand, shape and weight
- * is legal under NHPA equipment rules (verified in tests/equipment.test.ts).
- * Brand names are fictional.
+ * Pitching shoe catalogue: four forged pitching-shoe models, each available
+ * in every legal weight and in any colour and finish. Every model is legal
+ * under NHPA equipment rules (verified in tests/equipment.test.ts).
  */
 
-export type ShapeId = 'classic' | 'hook' | 'wide' | 'taper';
+export type ModelId = 'bulldog' | 'legend' | 'cadet' | 'competition';
 export type Hardness = 'soft' | 'medium' | 'hard';
-export type FinishId =
-  | 'forged'
-  | 'black'
-  | 'red'
-  | 'blue'
-  | 'chrome'
-  | 'copper'
-  | 'gold'
-  | 'green'
-  | 'orange';
-export type BrandId = 'ironside' | 'prairie' | 'copperhead' | 'thunder' | 'silverstake' | 'ozark';
+export type FinishId = 'gloss' | 'satin' | 'metal' | 'chrome';
 export type WeightId = '2-2' | '2-4' | '2-6' | '2-8' | '2-10';
 export type Grip = 'flip' | 'turn114' | 'turn134';
+/** Colour as hue (0–360), saturation (0–1) and brightness (0–1). */
+export type Hsv = [number, number, number];
 
-/** Shape parameters, all in inches (converted to metres by `shapeMetres`). */
+/**
+ * Heel calk forms: a flat-topped `block`, a `pyramid` rising to a point,
+ * a `wedge` that climbs toward the heel tip, or a `bevel` block with a
+ * sloped face.
+ */
+export type CalkKind = 'block' | 'pyramid' | 'wedge' | 'bevel';
+
+/** Shape parameters, all lengths in inches. */
 export interface ShapeSpec {
-  id: ShapeId;
-  name: string;
-  blurb: string;
-  /** Centerline half-width (ellipse semi-axis across the shoe). */
-  a: number;
-  /** Centerline semi-axis from ellipse centre to toe. */
-  c: number;
-  /** Angular extent of each arm from the toe, degrees (>90 means heels turn in). */
-  thetaMaxDeg: number;
+  /** Overall outside width and length (toe to heel tips). */
+  width: number;
+  length: number;
+  /** Depth of the rounded bow, measured on the centreline from the toe. */
+  bowDepth: number;
+  /** Superellipse exponent of the bow: 2 is round, higher is squarer. */
+  squareness: number;
+  /** Inward lean of each leg toward the heels, degrees. */
+  legLean: number;
   bandToe: number;
+  bandLeg: number;
   bandHeel: number;
   thickness: number;
-  toeCalk: number;
-  heelCalk: number;
-  /** Inward hook at each heel tip. */
-  hook: number;
-  /** Raised inner lip (visual + slight catch bonus). */
-  innerLip: number;
+  /** How far each hook reaches in past the inside edge of the leg. */
+  hookReach: number;
+  /** Thickness of the hook at its tip (twice the tip radius). */
+  hookTip: number;
+  /** Length of the curved throat between the leg and the top of the hook. */
+  hookThroat: number;
+  /** How far the hook tip curls back toward the toe. */
+  hookCurl: number;
+  /** How far the outer heel point runs past the bottom of the hook. */
+  heelPoint: number;
+  /** Outward flare of the heel point. */
+  heelFlare: number;
+  heelCalk: { kind: CalkKind; height: number; length: number; /** 0..1 of the hook it covers. */ reach: number };
+  toeCalk: { height: number; length: number; width: number };
+  /** Raised bump on the inside of the toe (0 for none). */
+  toeNotch: number;
 }
 
-export const SHAPES: Record<ShapeId, ShapeSpec> = {
-  classic: {
-    id: 'classic',
-    name: 'Classic',
-    blurb: 'Traditional open profile. Balanced catch and hold — the benchmark.',
-    a: 3.066,
-    c: 3.867,
-    thetaMaxDeg: 134.4,
-    bandToe: 1.12,
-    bandHeel: 0.94,
-    thickness: 0.5,
-    toeCalk: 0.28,
-    heelCalk: 0.3,
-    hook: 0.12,
-    innerLip: 0.04,
+export interface StampSpec {
+  /** Main stamp text. */
+  text: string;
+  /** `oval` is a raised oval badge on the toe, `panel` a raised plate across the bow, `leg` a badge on the leg. */
+  style: 'oval' | 'panel' | 'leg';
+  /** Small marks either side of the badge. */
+  sides?: [string, string];
+  /** Mark under the main text. */
+  under?: string;
+}
+
+export interface ModelSpec {
+  id: ModelId;
+  name: string;
+  tagline: string;
+  hardness: Hardness;
+  shape: ShapeSpec;
+  stamp: StampSpec;
+  /** Factory finish and colour. */
+  finish: FinishId;
+  color: Hsv;
+}
+
+export const MODELS: Record<ModelId, ModelSpec> = {
+  bulldog: {
+    id: 'bulldog',
+    name: 'Bulldog',
+    tagline: 'Square-shouldered and broad with stubby hooks. Wide catch, soft steel that dies on the stake.',
+    hardness: 'soft',
+    shape: {
+      width: 7.2, length: 7.35, bowDepth: 2.35, squareness: 3.1, legLean: 0.6,
+      bandToe: 1.14, bandLeg: 1.1, bandHeel: 1.06, thickness: 0.5,
+      hookReach: 0.76, hookTip: 0.48, hookThroat: 0.3, hookCurl: 0.06, heelPoint: 0.5, heelFlare: 0.04,
+      heelCalk: { kind: 'wedge', height: 0.3, length: 0.95, reach: 0.35 },
+      toeCalk: { height: 0.27, length: 1.6, width: 0.42 },
+      toeNotch: 0,
+    },
+    stamp: { text: 'BULLDOG', style: 'oval' },
+    finish: 'gloss',
+    color: [220, 0.08, 0.07],
   },
-  hook: {
-    id: 'hook',
-    name: 'Hook Heel',
-    blurb: 'Pronounced heel hooks lock onto the stake. Ringers stay on.',
-    a: 3.057,
-    c: 3.856,
-    thetaMaxDeg: 134.4,
-    bandToe: 1.1,
-    bandHeel: 0.9,
-    thickness: 0.52,
-    toeCalk: 0.3,
-    heelCalk: 0.32,
-    hook: 0.34,
-    innerLip: 0.06,
+  legend: {
+    id: 'legend',
+    name: 'Legend',
+    tagline: 'Round bow, block heel calks and a thumb notch on the toe. A medium-temper all-rounder.',
+    hardness: 'medium',
+    shape: {
+      width: 7.0, length: 7.42, bowDepth: 2.7, squareness: 2.25, legLean: 0.4,
+      bandToe: 1.0, bandLeg: 0.88, bandHeel: 0.9, thickness: 0.5,
+      hookReach: 0.9, hookTip: 0.26, hookThroat: 0.34, hookCurl: 0.16, heelPoint: 0.72, heelFlare: 0.02,
+      heelCalk: { kind: 'block', height: 0.3, length: 0.78, reach: 0 },
+      toeCalk: { height: 0.28, length: 1.5, width: 0.4 },
+      toeNotch: 0.13,
+    },
+    stamp: { text: 'LEGEND', style: 'leg' },
+    finish: 'gloss',
+    color: [356, 0.93, 0.78],
   },
-  wide: {
-    id: 'wide',
-    name: 'Wide Body',
-    blurb: 'Maximum width and opening. Forgiving catch, but ringers can spin off.',
-    a: 3.139,
-    c: 3.679,
-    thetaMaxDeg: 137.1,
-    bandToe: 1.04,
-    bandHeel: 0.9,
-    thickness: 0.48,
-    toeCalk: 0.26,
-    heelCalk: 0.28,
-    hook: 0.08,
-    innerLip: 0.03,
+  cadet: {
+    id: 'cadet',
+    name: 'Cadet',
+    tagline: 'Tall, narrow and lively, with pyramid heel calks and sharp hooks that bite the stake.',
+    hardness: 'hard',
+    shape: {
+      width: 7.05, length: 7.5, bowDepth: 2.75, squareness: 2.1, legLean: 1.8,
+      bandToe: 1.05, bandLeg: 0.9, bandHeel: 0.86, thickness: 0.5,
+      hookReach: 0.84, hookTip: 0.2, hookThroat: 0.42, hookCurl: 0.2, heelPoint: 0.85, heelFlare: 0.05,
+      heelCalk: { kind: 'pyramid', height: 0.36, length: 0.9, reach: 0.75 },
+      toeCalk: { height: 0.28, length: 1.45, width: 0.4 },
+      toeNotch: 0,
+    },
+    stamp: { text: 'CADET', style: 'oval' },
+    finish: 'gloss',
+    color: [128, 0.85, 0.66],
   },
-  taper: {
-    id: 'taper',
-    name: 'Tournament Taper',
-    blurb: 'Long profile with tapered heels. Rewards a true flip; punishes a wobble.',
-    a: 2.989,
-    c: 4.0,
-    thetaMaxDeg: 133.8,
-    bandToe: 1.2,
-    bandHeel: 0.8,
-    thickness: 0.5,
-    toeCalk: 0.3,
-    heelCalk: 0.26,
-    hook: 0.2,
-    innerLip: 0.08,
+  competition: {
+    id: 'competition',
+    name: 'Competition',
+    tagline: 'Drop-forged soft steel. A broad toe panel tapering to slim legs, with tall bevelled heel calks.',
+    hardness: 'soft',
+    shape: {
+      width: 7.15, length: 7.5, bowDepth: 2.6, squareness: 2.35, legLean: 1.4,
+      bandToe: 1.24, bandLeg: 0.8, bandHeel: 0.86, thickness: 0.5,
+      hookReach: 0.95, hookTip: 0.34, hookThroat: 0.3, hookCurl: 0.08, heelPoint: 0.85, heelFlare: 0.04,
+      heelCalk: { kind: 'bevel', height: 0.36, length: 0.85, reach: 0.2 },
+      toeCalk: { height: 0.28, length: 1.55, width: 0.42 },
+      toeNotch: 0.12,
+    },
+    stamp: { text: 'COMPETITION', style: 'panel', sides: ['DROP', 'FORGED'], under: 'Ω' },
+    finish: 'metal',
+    color: [210, 0.05, 0.52],
   },
 };
 
 export interface FinishSpec {
   id: FinishId;
   name: string;
-  color: string;
   metalness: number;
   roughness: number;
   clearcoat: number;
-  /** Amount of worn bare steel showing through on edges (0..1). */
-  wear: number;
 }
 
 export const FINISHES: Record<FinishId, FinishSpec> = {
-  forged: { id: 'forged', name: 'Polished Forged', color: '#b4b9bf', metalness: 1, roughness: 0.2, clearcoat: 0, wear: 0 },
-  black: { id: 'black', name: 'Gloss Black', color: '#0d0e10', metalness: 0.1, roughness: 0.3, clearcoat: 1, wear: 0.5 },
-  red: { id: 'red', name: 'Candy Red', color: '#b0121b', metalness: 0.15, roughness: 0.28, clearcoat: 1, wear: 0.45 },
-  blue: { id: 'blue', name: 'Royal Blue', color: '#1840a8', metalness: 0.15, roughness: 0.28, clearcoat: 1, wear: 0.45 },
-  green: { id: 'green', name: 'Field Green', color: '#16743a', metalness: 0.15, roughness: 0.3, clearcoat: 1, wear: 0.45 },
-  orange: { id: 'orange', name: 'Safety Orange', color: '#ec5f12', metalness: 0.1, roughness: 0.3, clearcoat: 1, wear: 0.45 },
-  chrome: { id: 'chrome', name: 'Mirror Chrome', color: '#f2f4f6', metalness: 1, roughness: 0.035, clearcoat: 0.5, wear: 0.12 },
-  copper: { id: 'copper', name: 'Copper Plate', color: '#d27a45', metalness: 1, roughness: 0.14, clearcoat: 0.4, wear: 0.25 },
-  gold: { id: 'gold', name: 'Champion Gold', color: '#f0c25a', metalness: 1, roughness: 0.1, clearcoat: 0.5, wear: 0.15 },
+  gloss: { id: 'gloss', name: 'Gloss', metalness: 0.08, roughness: 0.3, clearcoat: 0.32 },
+  satin: { id: 'satin', name: 'Satin', metalness: 0.05, roughness: 0.52, clearcoat: 0.05 },
+  metal: { id: 'metal', name: 'Metal', metalness: 1, roughness: 0.42, clearcoat: 0 },
+  chrome: { id: 'chrome', name: 'Chrome', metalness: 1, roughness: 0.04, clearcoat: 0.3 },
 };
 
-export interface BrandSpec {
-  id: BrandId;
-  name: string;
-  tagline: string;
-  hardness: Hardness;
-  finishes: FinishId[];
-  /** Short stamp forged into the toe. */
-  stamp: string;
-  accent: string;
-  /** Unlocked by winning a tournament. */
-  locked?: boolean;
+/** Quick colour picks shown above the sliders. */
+export const COLOR_PRESETS: { name: string; color: Hsv; finish?: FinishId }[] = [
+  { name: 'Black', color: [220, 0.08, 0.07] },
+  { name: 'Red', color: [356, 0.93, 0.78] },
+  { name: 'Green', color: [128, 0.85, 0.66] },
+  { name: 'Silver', color: [210, 0.05, 0.52], finish: 'metal' },
+  { name: 'Blue', color: [222, 0.88, 0.7] },
+  { name: 'Orange', color: [22, 0.95, 0.95] },
+  { name: 'Yellow', color: [48, 0.92, 0.98] },
+  { name: 'Purple', color: [275, 0.7, 0.6] },
+  { name: 'Pink', color: [330, 0.62, 0.95] },
+  { name: 'White', color: [40, 0.04, 0.95] },
+  { name: 'Gold', color: [43, 0.62, 0.95], finish: 'metal' },
+  { name: 'Copper', color: [20, 0.62, 0.86], finish: 'metal' },
+];
+
+/** HSV to 0..1 sRGB components. */
+export function hsvToRgb([h, s, v]: Hsv): [number, number, number] {
+  const f = (n: number) => {
+    const k = (n + h / 60) % 6;
+    return v - v * s * Math.max(0, Math.min(k, 4 - k, 1));
+  };
+  return [f(5), f(3), f(1)];
 }
 
-export const BRANDS: Record<BrandId, BrandSpec> = {
-  ironside: {
-    id: 'ironside',
-    name: 'Ironside Forge',
-    tagline: 'Drop-forged soft steel since 1921. Dies on the stake.',
-    hardness: 'soft',
-    finishes: ['forged', 'black', 'red'],
-    stamp: 'IRONSIDE',
-    accent: '#d9822b',
-  },
-  prairie: {
-    id: 'prairie',
-    name: 'Prairie King',
-    tagline: 'Heartland favourite. Medium temper, true in the air.',
-    hardness: 'medium',
-    finishes: ['red', 'blue', 'green', 'black'],
-    stamp: 'PRAIRIE KING',
-    accent: '#c0392b',
-  },
-  copperhead: {
-    id: 'copperhead',
-    name: 'Copperhead Pro',
-    tagline: 'Plated soft steel with a grip-texture finish.',
-    hardness: 'soft',
-    finishes: ['copper', 'black', 'orange'],
-    stamp: 'COPPERHEAD',
-    accent: '#c46a3a',
-  },
-  thunder: {
-    id: 'thunder',
-    name: 'Thunder Ridge',
-    tagline: 'Heat-treated hard steel. Loud, lively and built to last.',
-    hardness: 'hard',
-    finishes: ['black', 'blue', 'forged'],
-    stamp: 'THUNDER RIDGE',
-    accent: '#3a7bd5',
-  },
-  silverstake: {
-    id: 'silverstake',
-    name: 'Silver Stake',
-    tagline: 'Show-room chrome over medium steel.',
-    hardness: 'medium',
-    finishes: ['chrome', 'black', 'gold'],
-    stamp: 'SILVER STAKE',
-    accent: '#b8c2cc',
-  },
-  ozark: {
-    id: 'ozark',
-    name: 'Ozark Hammer',
-    tagline: 'Hand-finished hammered soft steel. Champion’s choice.',
-    hardness: 'soft',
-    finishes: ['forged', 'gold', 'green'],
-    stamp: 'OZARK',
-    accent: '#e3b34a',
-    locked: true,
-  },
-};
+export function hsvToCss(c: Hsv): string {
+  const [r, g, b] = hsvToRgb(c);
+  const x = (v: number) => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0');
+  return `#${x(r)}${x(g)}${x(b)}`;
+}
 
 export interface WeightSpec {
   id: WeightId;
@@ -240,20 +233,34 @@ export const GRIPS: Record<Grip, { id: Grip; name: string; short: string; rotati
 };
 
 export interface Loadout {
-  brand: BrandId;
-  shape: ShapeId;
+  model: ModelId;
   weight: WeightId;
   finish: FinishId;
+  color: Hsv;
 }
 
-export const DEFAULT_LOADOUT: Loadout = { brand: 'ironside', shape: 'classic', weight: '2-8', finish: 'forged' };
+export const DEFAULT_LOADOUT: Loadout = { model: 'competition', weight: '2-8', finish: 'metal', color: [210, 0.05, 0.52] };
+
+/** A model in its factory finish. */
+export function factoryLoadout(model: ModelId, weight: WeightId = DEFAULT_LOADOUT.weight): Loadout {
+  const m = MODELS[model];
+  return { model, weight, finish: m.finish, color: [...m.color] };
+}
+
+const clamp01 = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : d);
 
 export function sanitizeLoadout(l: Partial<Loadout> | undefined): Loadout {
-  const brand = l?.brand && BRANDS[l.brand] ? l.brand : DEFAULT_LOADOUT.brand;
-  const shape = l?.shape && SHAPES[l.shape] ? l.shape : DEFAULT_LOADOUT.shape;
+  const model = l?.model && MODELS[l.model] ? l.model : DEFAULT_LOADOUT.model;
   const weight = l?.weight && WEIGHTS[l.weight] ? l.weight : DEFAULT_LOADOUT.weight;
-  const finish = l?.finish && BRANDS[brand].finishes.includes(l.finish) ? l.finish : BRANDS[brand].finishes[0];
-  return { brand, shape, weight, finish };
+  const factory = factoryLoadout(model, weight);
+  const finish = l?.finish && FINISHES[l.finish] ? l.finish : factory.finish;
+  const c = Array.isArray(l?.color) ? l.color : factory.color;
+  const h = typeof c[0] === 'number' && Number.isFinite(c[0]) ? ((c[0] % 360) + 360) % 360 : factory.color[0];
+  return { model, weight, finish, color: [h, clamp01(c[1], factory.color[1]), clamp01(c[2], factory.color[2])] };
+}
+
+export function sameLoadout(a: Loadout, b: Loadout): boolean {
+  return a.model === b.model && a.weight === b.weight && a.finish === b.finish && a.color.every((v, i) => Math.abs(v - b.color[i]) < 1e-6);
 }
 
 /** Physical behaviour derived from a loadout. */
@@ -269,30 +276,37 @@ export interface ShoeTraits {
 
 const HARDNESS_RESTITUTION: Record<Hardness, number> = { soft: 0.14, medium: 0.26, hard: 0.4 };
 
+/** 0..1, how far between the lightest and heaviest legal weight. */
+function heaviness(l: Loadout): number {
+  return (WEIGHTS[l.weight].kg - WEIGHTS['2-2'].kg) / (SHOE_LIMITS.maxWeightKg - WEIGHTS['2-2'].kg);
+}
+
 export function shoeTraits(l: Loadout): ShoeTraits {
-  const massKg = WEIGHTS[l.weight].kg;
-  const heavy = (massKg - WEIGHTS['2-2'].kg) / (SHOE_LIMITS.maxWeightKg - WEIGHTS['2-2'].kg); // 0..1
-  const shape = SHAPES[l.shape];
+  const heavy = heaviness(l);
+  const s = MODELS[l.model].shape;
+  // Broad, square shoes carry more of their mass out wide and fly steadier.
+  const spread = (s.width - 7) * 0.6 + (s.squareness - 2.3) * 0.08;
   return {
-    massKg,
-    restitution: HARDNESS_RESTITUTION[BRANDS[l.brand].hardness],
-    wobbleScale: (1.15 - 0.3 * heavy) * (shape.id === 'taper' ? 1.15 : shape.id === 'wide' ? 0.92 : 1),
+    massKg: WEIGHTS[l.weight].kg,
+    restitution: HARDNESS_RESTITUTION[MODELS[l.model].hardness],
+    wobbleScale: (1.15 - 0.3 * heavy) * (1 - spread),
     rotationScale: 0.9 + 0.2 * heavy,
   };
 }
 
 /** 0..100 ratings for the pro-shop bars. */
 export function shoeRatings(l: Loadout): { catch: number; hold: number; stability: number; deadness: number; control: number } {
-  const s = SHAPES[l.shape];
+  const s = MODELS[l.model].shape;
   const t = shoeTraits(l);
-  const heavy = (t.massKg - WEIGHTS['2-2'].kg) / (SHOE_LIMITS.maxWeightKg - WEIGHTS['2-2'].kg);
+  const heavy = heaviness(l);
   const clamp = (v: number) => Math.round(Math.max(5, Math.min(100, v)));
+  const inside = s.width - 2 * s.bandLeg; // inside width between the legs
   return {
-    catch: clamp(45 + (s.a - 2.9) * 160 + (s.thetaMaxDeg < 122 ? 6 : 0) - s.hook * 20),
-    hold: clamp(35 + s.hook * 140 + s.innerLip * 120),
-    stability: clamp(40 + heavy * 40 + (s.id === 'wide' ? 10 : s.id === 'taper' ? -10 : 0)),
+    catch: clamp(30 + (inside - 4.8) * 70 + (s.squareness - 2) * 14 + (s.length - 7.3) * 30),
+    hold: clamp(20 + s.hookReach * 45 + s.hookCurl * 70 + s.heelCalk.height * 40 + s.heelCalk.reach * 8),
+    stability: clamp(40 + heavy * 40 + (1 - t.wobbleScale / (1.15 - 0.3 * heavy)) * 300),
     deadness: clamp(100 - t.restitution * 170 + heavy * 12),
-    control: clamp(80 - heavy * 25 + (s.id === 'taper' ? -8 : 0)),
+    control: clamp(80 - heavy * 25 - (s.squareness - 2.2) * 8),
   };
 }
 

@@ -72,7 +72,7 @@ export function shoeStakeDistance(geom: ShoeGeometry, position: Vector3, quatern
   seg.copy(stake.top).sub(stake.base);
   const l2 = seg.lengthSq();
   let best = Infinity;
-  const pts = [...geom.outerContour, ...geom.innerPolygon];
+  const pts = geom.outline;
   for (let k = 0; k < pts.length; k += 1) {
     const p = pts[k];
     tmp.set(p.x, 0, p.z).applyQuaternion(quaternion).add(position);

@@ -246,11 +246,11 @@ export class Environment {
   private buildBannersAndFence() {
     const sponsors: [string[], string, string, string?][] = [
       [['RINGERS', 'WORLD HORSESHOE CHAMPIONSHIP'], '#13294b', '#f2c14e', '#c8102e'],
-      [['IRONSIDE FORGE', 'DROP-FORGED SINCE 1921'], '#1c1c1c', '#e8833a'],
-      [['PRAIRIE KING', 'PITCHING SHOES'], '#8e1b1b', '#fff3d6'],
-      [['THUNDER RIDGE', 'HARD STEEL · LOUD RINGERS'], '#0f2f5c', '#ffffff'],
-      [['COPPERHEAD PRO'], '#2a1a12', '#d98b54'],
-      [['SILVER STAKE', 'CHROME CLASSICS'], '#d8dde3', '#20262c'],
+      [['BULLDOG', 'PITCHING SHOES'], '#1c1c1c', '#e8833a'],
+      [['LEGEND', 'PITCHING SHOES'], '#8e1b1b', '#fff3d6'],
+      [['CADET', 'HOOKS THAT BITE'], '#0f4a24', '#ffffff'],
+      [['ANY COLOR', 'YOU CAN DREAM UP'], '#0f2f5c', '#ffffff'],
+      [['COMPETITION', 'DROP FORGED'], '#d8dde3', '#20262c'],
     ];
     const fenceMat = new THREE.MeshStandardMaterial({ color: 0x8b9096, metalness: 0.7, roughness: 0.5 });
     const posts: THREE.BufferGeometry[] = [];
