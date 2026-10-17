@@ -104,16 +104,19 @@ function strips(W: number, H: number, cols: number, rows: number, wander: number
   const warp = field(W, H, 3, 4, 2, seed), wobble = field(W, H, 12, 16, 1, seed + 1);
   const cw = W / cols, ch = H / rows;
   const dx = new Float32Array(W * H), dy = new Float32Array(W * H), own = new Float32Array(W * H);
+  const offset = Float32Array.from({ length: cols }, (_, c) => hash(c, 0, seed + 2) * rows);
+  const slant = Float32Array.from({ length: cols }, (_, c) => (hash(c, 1, seed + 2) - 0.5) * 0.9);
+  const plate = Float32Array.from({ length: cols * rows }, (_, k) => hash(k % cols, Math.floor(k / cols), seed + 3));
   for (let y = 0, i = 0; y < H; y++)
     for (let x = 0; x < W; x++, i++) {
       const u = (x / W) * cols + (warp[i] - 0.5) * wander + (wobble[i] - 0.5) * 0.35;
       const ci = Math.floor(u), f = u - ci, col = ((ci % cols) + cols) % cols;
       // Cross breaks slant a little and sit at a different height in every strip.
-      const v = (y / H) * rows + hash(col, 0, seed + 2) * rows + (f - 0.5) * (hash(col, 1, seed + 2) - 0.5) * 0.9 + (wobble[i] - 0.5) * 0.12;
+      const v = (y / H) * rows + offset[col] + (f - 0.5) * slant[col] + (wobble[i] - 0.5) * 0.12;
       const ri = Math.floor(v), g = v - ri, row = ((ri % rows) + rows) % rows;
       dx[i] = Math.min(f, 1 - f) * cw;
       dy[i] = Math.min(g, 1 - g) * ch;
-      own[i] = hash(col, row, seed + 3);
+      own[i] = plate[row * cols + col];
     }
   return { dx, dy, own };
 }

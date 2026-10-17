@@ -456,7 +456,7 @@ function birch(g: Grower, variant: number, q: Quality): TreeSkeleton {
         });
         for (let n = 0; n < 4; n++) g.spray(twig, 0.3 + n * 0.23, g.range(0.75, 1.0) / Math.sqrt(0.55 + 0.45 * k), centre, 0.3, -0.25);
       }
-      if (q === 'low') for (let n = 0; n < 4; n++) g.spray(branch, 0.35 + n * 0.21, g.range(1.1, 1.4), centre, 0.35, -0.2);
+      if (q === 'low') for (let n = 0; n < 6; n++) g.spray(branch, 0.3 + n * 0.14, g.range(1.25, 1.55), centre, 0.35, -0.2);
       else g.spray(branch, 1, g.range(0.75, 0.95), centre, 0.3, -0.1);
     }
   }
@@ -503,8 +503,8 @@ function pine(g: Grower, variant: number, q: Quality): TreeSkeleton {
       phase: g.range(0, Math.PI * 2),
     });
   }
-  const spacing = q === 'high' ? 0.62 : q === 'medium' ? 0.8 : 0.95;
-  const perWhorl = q === 'low' ? 4 : 5;
+  const spacing = q === 'high' ? 0.62 : q === 'medium' ? 0.8 : 0.85;
+  const perWhorl = 5;
   let whorlRoll = g.range(0, Math.PI * 2);
   for (let y = base; y < height - 0.45; y += spacing * g.range(0.85, 1.15)) {
     const h = (y - base) / (height - base);
