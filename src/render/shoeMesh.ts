@@ -96,6 +96,59 @@ function applyPlanarUv(geo: THREE.BufferGeometry): THREE.BufferGeometry {
   return g;
 }
 
+/**
+ * Remove zero-area triangles (the extrusion and calk builders leave a few
+ * where outline points nearly coincide). Their normals come out zero-length,
+ * which the GPU normalises to NaN — a NaN pixel that bloom then smears into
+ * flashing blocks.
+ */
+function dropDegenerateTriangles(geo: THREE.BufferGeometry): THREE.BufferGeometry {
+  const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+  const uv = geo.getAttribute('uv') as THREE.BufferAttribute;
+  const keepP: number[] = [];
+  const keepU: number[] = [];
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  for (let t = 0; t + 2 < pos.count; t += 3) {
+    a.fromBufferAttribute(pos, t);
+    b.fromBufferAttribute(pos, t + 1);
+    c.fromBufferAttribute(pos, t + 2);
+    const area2 = c.sub(a).cross(b.sub(a)).length();
+    if (!(area2 > 1e-11)) continue;
+    for (let k = t; k < t + 3; k++) {
+      keepP.push(pos.getX(k), pos.getY(k), pos.getZ(k));
+      keepU.push(uv.getX(k), uv.getY(k));
+    }
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(keepP, 3));
+  out.setAttribute('uv', new THREE.Float32BufferAttribute(keepU, 2));
+  return out;
+}
+
+/** Any normal that is still zero-length or non-finite gets its triangle's face normal. */
+function repairNormals(geo: THREE.BufferGeometry) {
+  const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+  const nrm = geo.getAttribute('normal') as THREE.BufferAttribute;
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3();
+  for (let i = 0; i < nrm.count; i++) {
+    n.fromBufferAttribute(nrm, i);
+    const l = n.length();
+    if (Number.isFinite(l) && l > 1e-6) {
+      if (Math.abs(l - 1) > 1e-3) nrm.setXYZ(i, n.x / l, n.y / l, n.z / l);
+      continue;
+    }
+    const t = i - (i % 3);
+    a.fromBufferAttribute(pos, t);
+    b.fromBufferAttribute(pos, t + 1);
+    c.fromBufferAttribute(pos, t + 2);
+    n.copy(c.sub(a).cross(b.sub(a)));
+    if (!(n.lengthSq() > 0)) n.set(0, 1, 0);
+    n.normalize();
+    nrm.setXYZ(i, n.x, n.y, n.z);
+  }
+  nrm.needsUpdate = true;
+}
+
 const geoCache = new Map<ModelId, THREE.BufferGeometry>();
 
 export function shoeBufferGeometry(model: ModelId): THREE.BufferGeometry {
@@ -104,8 +157,9 @@ export function shoeBufferGeometry(model: ModelId): THREE.BufferGeometry {
     const g = shoeGeometry(model);
     const parts = [plateGeometry(g), ...g.calks.map((c) => calkGeometry(c, -g.thickness / 2))].map(applyPlanarUv);
     for (const p of parts) for (const k of Object.keys(p.attributes)) if (k !== 'position' && k !== 'uv') p.deleteAttribute(k);
-    const merged = mergeGeometries(parts)!;
+    const merged = dropDegenerateTriangles(mergeGeometries(parts)!);
     geo = toCreasedNormals(merged, 0.62);
+    repairNormals(geo);
     geo.computeBoundingSphere();
     geoCache.set(model, geo);
   }

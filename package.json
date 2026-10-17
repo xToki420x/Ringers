@@ -1,7 +1,7 @@
 {
   "name": "ringers",
   "private": true,
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Ringers — a 3D tournament horseshoe pitching game for phones",
   "type": "module",
   "scripts": {
