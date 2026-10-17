@@ -7,6 +7,8 @@ export interface PlayerInfo {
   id: string;
   name: string;
   isHuman: boolean;
+  /** Pitching from another device in an online room. */
+  remote?: boolean;
   hand: 1 | -1;
   grip: Grip;
   loadout: Loadout;

@@ -217,7 +217,7 @@ export class Stage {
       // highlights, bright cloud banks, a dark tree line on the horizon and
       // a sunlit lawn — the structure that makes polished steel read as steel.
       const L = this.env.lighting;
-      const sun = new THREE.Mesh(new THREE.SphereGeometry(16, 16, 8), new THREE.MeshBasicMaterial({ color: L.sunColor.clone().multiplyScalar(80) }));
+      const sun = new THREE.Mesh(new THREE.SphereGeometry(16, 16, 8), new THREE.MeshBasicMaterial({ color: L.sunColor.clone().multiplyScalar(26) }));
       sun.position.copy(L.sunDir).multiplyScalar(420);
       envScene.add(sun);
       const cloudMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.2, 2.3), side: THREE.DoubleSide });
@@ -515,34 +515,62 @@ export class Stage {
     else this.camera.setViewOffset(w, h, w * this.viewShiftX, h * this.viewShift, w, h);
   }
 
-  // Dynamic resolution: trade pixel density for frame rate on slower phones.
+  // Dynamic resolution: trade pixel density for frame rate on slower devices.
+  // Changes are rare and one-directional where possible: every change
+  // reallocates the render targets (a hitch) and visibly re-sharpens the
+  // picture, so the controller waits through start-up, needs sustained
+  // evidence before stepping, and stops raising quality once it has had to
+  // lower it twice (so it can never oscillate).
   private maxRatio = 1;
   private ratio = 1;
   private frameAcc = 0;
   private frameCount = 0;
-  private goodStreak = 0;
+  private slowWindows = 0;
+  private goodWindows = 0;
+  private drops = 0;
+  private sinceStart = 0;
 
-  /** Feed real (unscaled) frame times; adjusts the render resolution every couple of seconds. */
+  /** Feed real (unscaled) frame times; adjusts the render resolution occasionally. */
   adapt(rawDt: number) {
     if (rawDt <= 0 || rawDt > 0.5) return;
+    this.sinceStart += rawDt;
+    if (this.sinceStart < 6) return; // shaders and textures are still settling in
     this.frameAcc += rawDt;
     this.frameCount++;
-    if (this.frameAcc < 2) return;
+    if (this.frameAcc < 3) return;
     const avg = this.frameAcc / this.frameCount;
     this.frameAcc = 0;
     this.frameCount = 0;
-    const min = Math.min(1, this.maxRatio);
-    if (avg > 1 / 45 && this.ratio > min * 0.75 + 1e-3) {
-      this.ratio = Math.max(min * 0.75, this.ratio - 0.25);
-      this.goodStreak = 0;
-      this.applyRatio();
-    } else if (avg < 1 / 58) {
-      if (++this.goodStreak >= 3 && this.ratio < this.maxRatio - 1e-3) {
-        this.ratio = Math.min(this.maxRatio, this.ratio + 0.25);
-        this.goodStreak = 0;
+    const min = Math.min(1, this.maxRatio) * 0.75;
+    if (avg > 1 / 42) {
+      this.goodWindows = 0;
+      if (++this.slowWindows >= 2 && this.ratio > min + 1e-3) {
+        this.ratio = Math.max(min, this.ratio - 0.25);
+        this.slowWindows = 0;
+        this.drops++;
         this.applyRatio();
       }
-    } else this.goodStreak = 0;
+    } else if (avg < 1 / 57) {
+      this.slowWindows = 0;
+      if (this.drops < 2 && ++this.goodWindows >= 5 && this.ratio < this.maxRatio - 1e-3) {
+        this.ratio = Math.min(this.maxRatio, this.ratio + 0.25);
+        this.goodWindows = 0;
+        this.applyRatio();
+      }
+    } else {
+      this.slowWindows = 0;
+      this.goodWindows = 0;
+    }
+  }
+
+  /** Compile every shader up front so nothing hitches the first time it comes into view. */
+  async warmUp() {
+    try {
+      await this.renderer.compileAsync(this.scene, this.camera);
+    } catch {
+      this.renderer.compile(this.scene, this.camera);
+    }
+    this.render();
   }
 
   private applyRatio() {

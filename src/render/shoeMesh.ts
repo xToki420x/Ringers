@@ -315,10 +315,11 @@ export function applyShoeLook(m: THREE.MeshPhysicalMaterial, l: Loadout) {
   // washed-out pastel of it.
   if (!metal) m.color.multiplyScalar(0.5);
   // The texture's green channel averages ~0.9 of full roughness.
-  m.roughness = fin.roughness / 0.9;
+  m.roughness = Math.max(0.08, fin.roughness) / 0.9;
   m.metalness = fin.metalness;
   m.clearcoat = fin.clearcoat;
-  m.clearcoatRoughness = 0.035;
+  // Slightly soft highlights: razor-sharp sun glints shimmer frame to frame.
+  m.clearcoatRoughness = 0.08;
   // Under a clear coat the paint itself is barely specular, and the open sky
   // reflected in it is kept modest so the colour stays rich.
   m.specularIntensity = metal ? 1 : 0.3;

@@ -280,6 +280,21 @@ export class ShoeBody {
     this.sleeping = false;
     this.restTime = 0;
   }
+
+  /** Centre-of-mass position and orientation, for sending over the network. */
+  restState(): number[] {
+    return [this.px, this.py, this.pz, this.qx, this.qy, this.qz, this.qw];
+  }
+
+  /** Put the shoe at rest exactly where another player's game left it. */
+  setRest(s: number[]) {
+    [this.px, this.py, this.pz, this.qx, this.qy, this.qz, this.qw] = s;
+    this.vx = this.vy = this.vz = 0;
+    this.wx = this.wy = this.wz = 0;
+    this.updateDerived();
+    this.sleeping = true;
+    this.landed = true;
+  }
 }
 
 class Contact {

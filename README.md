@@ -31,6 +31,13 @@ Add to Home Screen to install it as a full-screen app that also works offline.
   medium or hard steel really changes how shoes die on the stake. Five weights from 2 lb 2 oz to the 2 lb 10 oz
   limit, and any colour you like from hue, strength and brightness sliders in gloss, satin, metal or chrome.
   Every model is verified against NHPA size, opening and weight limits in the test suite.
+- **Play friends online.** Create a room and send its five-letter code (or an invite link) to friends on any
+  phone or PC. Up to eight people per room: two pitch while everyone else watches the same game live, the
+  winner stays on and the next in line steps up. The host picks the game, distance, pit and time of day. Each
+  throw is sent as the pitcher's actual delivery and every device plays it through the same physics; when the
+  shoe stops, the pitcher's device sends where every shoe lies so everyone scores the same inning. Messages go
+  through two public MQTT relays at once over secure WebSockets, so it works behind any router with no game
+  server to run (names and throws pass through those public relays).
 - **A full championship.** 64 pitchers: sixteen round-robin pools of four, then a 32-pitcher single-elimination
   bracket to the title. AI opponents throw through the same physics with skill-calibrated release errors.
 - **Broadcast presentation.** Every shoe is followed through the air in slow motion by a chase camera so you

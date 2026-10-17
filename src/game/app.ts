@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GRIPS, MODELS, factoryLoadout, type Loadout } from '../core/equipment';
+import { GRIPS, MODELS, factoryLoadout, sanitizeLoadout, type Loadout } from '../core/equipment';
 import { formatDistance, judgeShoe, type ShoeResult } from '../core/scoring';
 import { PIT } from '../core/constants';
 import { haptic, sfx } from '../audio/sfx';
@@ -16,6 +16,7 @@ import { Match, ringerPct, type MatchConfig, type PlayerInfo } from './match';
 import { EXHIBITION_OPPONENTS } from './roster';
 import { load, resetSave, save, type SaveData } from './save';
 import { advance, createTournament, HUMAN_ID, nextHumanGame, opponentOf, recordHumanGame, stageLabel } from './tournament';
+import { Room, type Member, type RoomState, type SnapMsg, type ThrowMsg } from '../net/room';
 
 type Phase =
   | 'menu'
@@ -23,6 +24,7 @@ type Phase =
   | 'turn-human'
   | 'turn-ai-wait'
   | 'turn-ai'
+  | 'net-wait'
   | 'flight'
   | 'settled'
   | 'summary'
@@ -40,12 +42,29 @@ interface LiveShoe {
   firstContact: number;
   landedAt: number;
   stakeHits: number;
+  /** Online: this throw's number in the match. */
+  net?: number;
 }
 
 type Session =
   | { kind: 'quick' }
   | { kind: 'tournament'; gameId: string }
-  | { kind: 'practice' };
+  | { kind: 'practice' }
+  | { kind: 'online' };
+
+/** State of an online match on this device. */
+interface OnlineMatch {
+  mid: string;
+  /** Room ids of players[0] and players[1] on this device. */
+  ids: [string, string];
+  /** Which of players[] is me, or null when watching. */
+  local: 0 | 1 | null;
+  /** Throws released so far this match. */
+  n: number;
+  throws: Map<number, ThrowMsg>;
+  snaps: Map<number, SnapMsg>;
+  waitSince: number;
+}
 
 const SIDE_FOR_HAND = (hand: 1 | -1): 1 | -1 => hand;
 
@@ -91,6 +110,11 @@ export class App implements UIActions {
   private replayT = 0;
   private replayEnd = 0;
   private replaySide: 1 | -1 = 1;
+  // Online rooms.
+  room: Room | null = null;
+  private online: OnlineMatch | null = null;
+  /** Code from an invite link (?room=CODE), offered on the online screen. */
+  inviteCode = new URLSearchParams(location.search).get('room') ?? '';
 
   constructor() {
     const canvas = document.getElementById('scene') as HTMLCanvasElement;
@@ -150,9 +174,21 @@ export class App implements UIActions {
     this.applySettings();
     this.placeDecor();
     this.stage.rig.set(this.stage.menuShot(0), true);
-    this.ui.hideLoading();
+    this.ui.loading(1, 'Warming up');
+    // Compile everything and draw a few frames behind the loading screen, so
+    // the title appears already running smoothly.
+    await this.stage.warmUp();
     this.ui.title();
+    // Opened from an invite link: go straight to joining that room.
+    if (this.inviteCode) this.ui.online();
+    this.last = performance.now();
     requestAnimationFrame(this.frame);
+    await new Promise<void>((r) => {
+      let n = 0;
+      const tick = () => (++n >= 3 ? r() : requestAnimationFrame(tick));
+      requestAnimationFrame(tick);
+    });
+    this.ui.hideLoading();
   }
 
   // ------------------------------------------------------------- UIActions
@@ -234,6 +270,19 @@ export class App implements UIActions {
 
   quitToMenu() {
     this.paused = false;
+    const r = this.room, on = this.online;
+    if (this.session?.kind === 'online' && r && on) {
+      if (on.local !== null) {
+        // Leaving a match you are playing in forfeits it.
+        r.send({ k: 'forfeit', mid: on.mid, loser: r.me.id });
+        this.onForfeit(on.mid, r.me.id);
+      } else {
+        r.lateFor = on.mid;
+        this.endSession();
+        this.ui.lobby();
+      }
+      return;
+    }
     this.endSession();
     this.ui.title();
   }
@@ -287,6 +336,166 @@ export class App implements UIActions {
     this.persist();
   }
 
+  // ------------------------------------------------------------- online
+
+  /** Stable for this browser tab, so reloading rejoins as the same person. */
+  private readonly clientId = (() => {
+    const fresh = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => b.toString(36).padStart(2, '0')).join('').slice(0, 10);
+    try {
+      let v = sessionStorage.getItem('ringers.client');
+      if (!v) {
+        v = fresh();
+        sessionStorage.setItem('ringers.client', v);
+      }
+      return v;
+    } catch {
+      return fresh();
+    }
+  })();
+  private lastOnlineMid = '';
+
+  private member(): Member {
+    return { id: this.clientId, name: this.data.name, hand: this.data.settings.hand, grip: this.data.grip, loadout: this.data.loadout };
+  }
+
+  private roomEvents() {
+    return {
+      state: (st: RoomState) => this.onRoomState(st),
+      throwMsg: (m: ThrowMsg) => {
+        if (this.online && m.mid === this.online.mid) this.online.throws.set(m.n, m);
+      },
+      snap: (m: SnapMsg) => {
+        if (this.online && m.mid === this.online.mid) this.online.snaps.set(m.n, m);
+      },
+      forfeit: (mid: string, loser: string) => this.onForfeit(mid, loser),
+      result: (mid: string, winner: string, loser: string, score: [number, number]) => this.room?.finishMatch(mid, winner, loser, score),
+      closed: (reason: string) => this.onRoomClosed(reason),
+      link: (ok: boolean) => this.ui.connection(ok),
+    };
+  }
+
+  async onlineCreate() {
+    const q = this.data.quick;
+    const cfg: MatchConfig = { mode: q.mode, target: q.target, distance: q.distance, pit: q.pit, time: q.time };
+    this.room = await Room.create(this.member(), cfg, this.roomEvents());
+    this.ui.lobby();
+  }
+
+  async onlineJoin(code: string) {
+    this.room = await Room.join(code, this.member(), this.roomEvents());
+    this.inviteCode = '';
+    this.ui.lobby();
+  }
+
+  onlineLeave() {
+    const r = this.room;
+    this.room = null;
+    r?.leave();
+  }
+
+  onlineStart() {
+    this.room?.startMatch();
+  }
+
+  onlineConfig(cfg: MatchConfig) {
+    this.room?.setConfig(cfg);
+  }
+
+  /** Tell the room about a new name or new shoes. */
+  onlineUpdateMe() {
+    this.room?.updateMe(this.member());
+  }
+
+  private onRoomState(st: RoomState) {
+    const r = this.room;
+    if (!r) return;
+    const m = st.match;
+    const startable = this.phase === 'menu' || this.phase === 'gameover';
+    if (st.status === 'playing' && m && m.id !== this.lastOnlineMid && m.id !== r.lateFor && startable && !this.online) {
+      this.startOnlineMatch(st);
+      return;
+    }
+    if (this.ui.current === 'lobby') this.ui.lobby();
+  }
+
+  private startOnlineMatch(st: RoomState) {
+    const r = this.room!;
+    const me = r.me.id;
+    const ids = st.match!.players;
+    const local = ids[0] === me ? 0 : ids[1] === me ? 1 : null;
+    // On your own device you are always players[0].
+    const order: [string, string] = local === 1 ? [ids[1], ids[0]] : [ids[0], ids[1]];
+    const info = (id: string): PlayerInfo => {
+      const mb = r.member(id);
+      return { id, name: mb?.name ?? 'Pitcher', isHuman: id === me, remote: id !== me, hand: mb?.hand ?? 1, grip: mb?.grip ?? 'flip', loadout: sanitizeLoadout(mb?.loadout) };
+    };
+    this.lastOnlineMid = st.match!.id;
+    this.ui.clearScreens();
+    this.startMatchWith({ kind: 'online' }, { ...st.cfg }, [info(order[0]), info(order[1])], order[0] === st.match!.first ? 0 : 1, local === null ? `Room ${r.code} · watching` : `Room ${r.code}`);
+    this.online = { mid: st.match!.id, ids: order, local: local === null ? null : 0, n: 0, throws: new Map(), snaps: new Map(), waitSince: 0 };
+  }
+
+  private onForfeit(mid: string, loser: string) {
+    const r = this.room;
+    if (!r) return;
+    const st = r.state;
+    if (r.isHost && st?.match?.id === mid) {
+      const winner = st.match.players.find((x) => x !== loser) ?? loser;
+      r.finishMatch(mid, winner, loser, st.match.score ?? [0, 0], true);
+    }
+    const on = this.online;
+    if (!on || on.mid !== mid) return;
+    const who = this.players?.[on.ids.indexOf(loser)]?.name ?? 'A pitcher';
+    this.endSession();
+    this.ui.lobby();
+    this.ui.toast(loser === r.me.id ? 'You left the match' : `${who} left the match`, 3500);
+  }
+
+  private onRoomClosed(reason: string) {
+    this.room = null;
+    if (this.session?.kind === 'online') this.endSession();
+    document.querySelectorAll('#overlay .modal').forEach((m) => m.remove());
+    this.paused = false;
+    this.ui.online(reason);
+  }
+
+  /** My shoe just stopped: tell the room exactly where every shoe in the pit lies. */
+  private sendSnap(n: number) {
+    if (!this.online || !this.room) return;
+    const bodies = this.live.map((l) => this.physics.shoes.get(l.id)?.restState() ?? null);
+    this.room.send({ k: 'snap', mid: this.online.mid, n, bodies, fouls: this.live.map((l) => l.foul) });
+  }
+
+  /** Lay every shoe where the pitcher's own game says it stopped. */
+  private applySnap(snap: SnapMsg) {
+    snap.bodies.forEach((st, i) => {
+      const l = this.live[i];
+      if (!l) return;
+      l.foul = snap.fouls[i] ?? l.foul;
+      let b = this.physics.shoes.get(l.id);
+      if (!st) {
+        if (b) {
+          this.physics.removeShoe(l.id);
+          this.stage.removeShoe(l.id);
+        }
+        return;
+      }
+      if (!b) {
+        const loadout = this.players![l.owner].loadout;
+        b = this.physics.addShoe(l.id, l.owner, loadout, { position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), linvel: new THREE.Vector3(), angvel: new THREE.Vector3() });
+        this.stage.addShoe(l.id, loadout);
+      }
+      b.setRest(st);
+    });
+  }
+
+  /** Match score in the room's player order. */
+  private roomOrderScores(): [number, number] {
+    const on = this.online!, m = this.match!;
+    const ids = this.room?.state?.match?.players ?? on.ids;
+    return [m.scores[on.ids.indexOf(ids[0])] ?? 0, m.scores[on.ids.indexOf(ids[1])] ?? 0];
+  }
+
   startPractice() {
     const cfg: MatchConfig = { mode: 'cancellation', target: 999, distance: this.data.quick.distance, pit: this.data.quick.pit, time: this.data.quick.time };
     this.session = { kind: 'practice' };
@@ -309,15 +518,23 @@ export class App implements UIActions {
   }
 
   private beginMatch(session: Session, cfg: MatchConfig, opp: PlayerInfo, subtitle: string) {
-    this.session = session;
-    this.players = [this.human(), opp];
     // Coin toss for first pitch.
-    this.match = new Match(cfg, this.players, Math.random() < 0.5 ? 0 : 1);
+    this.startMatchWith(session, cfg, [this.human(), opp], Math.random() < 0.5 ? 0 : 1, subtitle, [
+      `${GRIPS[this.data.grip].name} · ${MODELS[this.data.loadout.model].name}`,
+      `${(opp.rating ?? 0).toFixed(0)}% ringers · ${GRIPS[opp.grip].short}`,
+    ]);
+  }
+
+  private startMatchWith(session: Session, cfg: MatchConfig, players: [PlayerInfo, PlayerInfo], first: 0 | 1, subtitle: string, subs?: [string, string]) {
+    this.session = session;
+    this.players = players;
+    this.match = new Match(cfg, this.players, first);
     this.ringerStreak = 0;
     this.prepareCourt(cfg);
     this.ui.setPractice(false);
     this.updateScoreboards();
-    this.ui.versus([this.data.name, opp.name], [`${GRIPS[this.data.grip].name} · ${MODELS[this.data.loadout.model].name}`, `${(opp.rating ?? 0).toFixed(0)}% ringers · ${GRIPS[opp.grip].short}`], subtitle);
+    const sub = (p: PlayerInfo) => `${GRIPS[p.grip].name} · ${MODELS[p.loadout.model].name}`;
+    this.ui.versus([players[0].name, players[1].name], subs ?? [sub(players[0]), sub(players[1])], subtitle);
     this.setPhase('intro');
     // Fly-in over the court.
     const z = stakeZ(this.match.targetEnd);
@@ -347,6 +564,7 @@ export class App implements UIActions {
     this.match = null;
     this.session = null;
     this.players = null;
+    this.online = null;
     this.setPhase('menu');
     this.timeScale = this.timeScaleTarget = 1;
     if (this.stage.time !== 'afternoon') this.stage.setTimeOfDay('afternoon');
@@ -422,10 +640,11 @@ export class App implements UIActions {
       this.setPhase('turn-ai-wait');
       this.stage.showViewShoe(null);
       this.ui.zoomState(false, false);
-      this.ui.hint(`${p.name} is pitching`);
+      this.ui.hint(p.remote ? `${p.name} is lining up…` : `${p.name} is pitching`);
       const shot = this.stage.broadcastShot(this.pitchFrom(), cfg.distance, sides[idx]);
       this.stage.rig.set(shot, this.phaseCameraCut(), 3);
-      this.pendingAiError = aiDeliveryError(p, Math.random, this.match ? this.pressure() : 0);
+      // A friend's throw arrives over the network; the computer's is rolled here.
+      this.pendingAiError = p.remote ? null : aiDeliveryError(p, Math.random, this.match ? this.pressure() : 0);
     }
   }
 
@@ -461,7 +680,9 @@ export class App implements UIActions {
     av.root.updateMatrixWorld(true);
     const from = new THREE.Vector3();
     av.hand.getWorldPosition(from);
+    const n = this.online?.n ?? 0;
     const shoe = this.release(p, g.error, g);
+    if (this.online && this.room) this.room.send({ k: 'throw', mid: this.online.mid, n, err: g.error });
     const off = from.sub(shoe.plan.state.position);
     if (off.length() < 0.6) this.stage.setShoeVisualOffset(shoe.id, off);
     this.stage.showViewShoe(null);
@@ -496,6 +717,7 @@ export class App implements UIActions {
     this.physics.addShoe(id, idx, p.loadout, plan.state);
     this.stage.addShoe(id, p.loadout);
     const shoe: LiveShoe = { id, owner: idx, plan, gesture, foul: false, firstContact: -1, landedAt: -1, stakeHits: 0 };
+    if (this.online) shoe.net = this.online.n++;
     this.live.push(shoe);
     this.thrown = shoe;
     this.simClock = 0;
@@ -553,8 +775,17 @@ export class App implements UIActions {
         this.stage.poseViewShoe(this.swing, p.hand, p.grip);
         break;
       }
-      case 'turn-ai-wait':
-        if (this.phaseT > (this.data.settings.fastAi ? 0.25 : 0.9)) {
+      case 'turn-ai-wait': {
+        const p = this.currentPlayer()!;
+        let ready = this.phaseT > (this.data.settings.fastAi && !p.remote ? 0.25 : 0.9);
+        if (p.remote) {
+          const m = this.online?.throws.get(this.online.n);
+          if (m) {
+            this.pendingAiError = m.err;
+            if (this.phaseT > 0.3) this.ui.hint(`${p.name} is pitching`);
+          } else ready = false;
+        }
+        if (ready) {
           const av = this.stage.pitchers[this.pitcherIndex()];
           av.startDelivery();
           // The pitcher carries a real shoe through the swing.
@@ -565,6 +796,19 @@ export class App implements UIActions {
           this.setPhase('turn-ai');
         }
         break;
+      }
+      case 'net-wait': {
+        // A friend's shoe has stopped here; wait for where it stopped on their device.
+        this.stepPhysics(dt);
+        const on = this.online;
+        const n = this.thrown?.net;
+        if (!on || n === undefined || on.snaps.has(n)) this.onSettled();
+        else if (this.phaseT > 25) {
+          this.netForce = true;
+          this.onSettled();
+        }
+        break;
+      }
       case 'turn-ai': {
         const av = this.stage.pitchers[this.pitcherIndex()];
         if (av.deliveryTime >= Pitcher.RELEASE_AT || !av.delivering) {
@@ -593,6 +837,8 @@ export class App implements UIActions {
         break;
       case 'summary':
         if (this.session?.kind === 'practice' && this.phaseT > 2.2) this.continueAfterSummary();
+        // Online games keep moving so everyone in the room stays together.
+        else if (this.session?.kind === 'online' && this.phaseT > 5) this.continueAfterSummary();
         break;
       case 'walk':
         if (this.phaseT > 1.7) this.beginTurn();
@@ -610,7 +856,8 @@ export class App implements UIActions {
   }
 
   private isAiTurnFast() {
-    return this.data.settings.fastAi && !this.currentPlayer()?.isHuman;
+    const p = this.currentPlayer();
+    return this.data.settings.fastAi && !!p && !p.isHuman && !p.remote;
   }
 
   private updateMenu() {
@@ -823,7 +1070,27 @@ export class App implements UIActions {
     });
   }
 
+  private netForce = false;
+
   private onSettled() {
+    const on = this.online;
+    const thrown = this.thrown;
+    if (on && thrown?.net !== undefined) {
+      const owner = this.players![thrown.owner];
+      if (owner.isHuman) this.sendSnap(thrown.net);
+      else {
+        const snap = on.snaps.get(thrown.net);
+        if (!snap && !this.netForce) {
+          if (this.phase !== 'net-wait') {
+            this.setPhase('net-wait');
+            this.ui.hint(`Waiting for ${owner.name}…`);
+          }
+          return;
+        }
+        if (snap) this.applySnap(snap);
+      }
+    }
+    this.netForce = false;
     this.ui.hint(null);
     this.setPhase('settled');
     const results = this.judgeAll();
@@ -957,6 +1224,7 @@ export class App implements UIActions {
     this.ui.sheet(this.ui.inningSheet(rec, names, this.data.settings.metric, () => this.continueAfterSummary()));
     this.ui.updateScore(this.match, names);
     this.updateScoreboards();
+    if (this.online && this.room?.isHost) this.room.updateScore(this.online.mid, this.roomOrderScores(), this.match.progressLabel());
     const pts = Math.max(...rec.score.points);
     if (rec.score.points[0] > 0 && this.match.config.mode === 'cancellation') this.stage.env.crowd.cheer(0.3 + pts * 0.1);
   }
@@ -1007,14 +1275,30 @@ export class App implements UIActions {
     const names: [string, string] = [this.players![0].name, this.players![1].name];
     const c = this.data.career;
     const st = m.stats[0];
-    c.games++;
-    if (m.winner === 0) c.wins++;
-    c.shoes += st.shoes;
-    c.ringers += st.ringers;
-    c.doubles += st.doubles;
-    c.inCount += st.inCount;
-    c.countPoints += st.countPoints;
-    if (st.shoes >= 20) c.bestRingerPct = Math.max(c.bestRingerPct, ringerPct(st));
+    const on = this.online;
+    // Watching a friends' game online doesn't count toward your career.
+    if (!on || on.local !== null) {
+      c.games++;
+      if (m.winner === 0) c.wins++;
+      c.shoes += st.shoes;
+      c.ringers += st.ringers;
+      c.doubles += st.doubles;
+      c.inCount += st.inCount;
+      c.countPoints += st.countPoints;
+      if (st.shoes >= 20) c.bestRingerPct = Math.max(c.bestRingerPct, ringerPct(st));
+    }
+    if (on && this.room && m.winner !== null) {
+      const w = m.winner, result = { mid: on.mid, winner: on.ids[w], loser: on.ids[1 - w], score: this.roomOrderScores() };
+      if (this.room.isHost) this.room.finishMatch(result.mid, result.winner, result.loser, result.score);
+      else if (on.local !== null) this.room.send({ k: 'result', ...result });
+      this.persist();
+      this.ui.gameOver(m, names, on.local, () => {
+        this.endSession();
+        if (this.room) this.ui.lobby();
+        else this.ui.online();
+      });
+      return;
+    }
     sfx.crowd(m.winner === 0 ? 1.4 : 0.6);
     this.stage.env.crowd.cheer(m.winner === 0 ? 1.4 : 0.5);
     let extra: string | undefined;
@@ -1045,7 +1329,7 @@ export class App implements UIActions {
   private updateScoreboards() {
     if (!this.match || !this.players) return;
     const sub = this.match.progressLabel();
-    for (const sb of this.stage.env.scoreboards) sb.draw([this.players[0].name, this.players[1].name], this.match.scores, this.session?.kind === 'tournament' ? 'World Championship' : 'Exhibition', sub);
+    for (const sb of this.stage.env.scoreboards) sb.draw([this.players[0].name, this.players[1].name], this.match.scores, this.session?.kind === 'tournament' ? 'World Championship' : this.session?.kind === 'online' && this.room ? `Room ${this.room.code}` : 'Exhibition', sub);
   }
 
   // ---------------------------------------------------------------- decor

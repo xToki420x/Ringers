@@ -10,6 +10,8 @@ import type { SaveData } from '../game/save';
 import { HUMAN_ID, humanPool, nextHumanGame, opponentOf, poolStandings, stageLabel, type Tournament } from '../game/tournament';
 import { h, icons, meter, seg, svg, toggle, topbar } from './dom';
 import { canFullscreen, layout, tapWord, toggleFullscreen } from './layout';
+import { MAX_MEMBERS, normalizeCode, validCode, type Room, type RoomState } from '../net/room';
+import type { MatchConfig } from '../game/match';
 
 export interface UIActions {
   data: SaveData;
@@ -30,6 +32,21 @@ export interface UIActions {
   toggleZoom(): boolean;
   pause(): void;
   setMenuBackdrop(kind: 'orbit' | 'shop'): void;
+  room: Room | null;
+  inviteCode: string;
+  onlineCreate(): Promise<void>;
+  onlineJoin(code: string): Promise<void>;
+  onlineLeave(): void;
+  onlineStart(): void;
+  onlineConfig(cfg: MatchConfig): void;
+  onlineUpdateMe(): void;
+}
+
+/** Link that opens the game straight to a room (the public web version). */
+export function inviteUrl(code: string): string {
+  const here = location.protocol.startsWith('http') && (location.hostname.endsWith('github.io') || location.hostname === 'localhost');
+  const base = here ? `${location.origin}${location.pathname}` : 'https://xtoki420x.github.io/Ringers/';
+  return `${base}?room=${code}`;
 }
 
 const IN_PER_M = 1 / 0.0254;
@@ -115,11 +132,13 @@ export class UI {
   }
 
   private mount(name: string, el: HTMLElement) {
+    if (name !== 'lobby') this.lobbyBody = null;
     this.current = name;
     this.screens.replaceChildren(el);
   }
 
   clearScreens() {
+    this.lobbyBody = null;
     this.current = '';
     this.screens.replaceChildren();
   }
@@ -172,6 +191,7 @@ export class UI {
           { class: 'menu' },
           btn('Quick Match', icons.play, () => this.quickMatch(), 'vs. the tour', true),
           btn(t ? 'Championship' : 'World Championship', icons.trophy, () => this.tournamentHub(), t ? stageLabel(t) : '64-pitcher field'),
+          btn('Play Online', icons.users, () => this.online(), 'rooms with friends'),
           btn('Practice', icons.target, () => this.a.startPractice(), 'free pitching'),
           btn('Pro Shop', icons.bag, () => this.shop(), 'models · weights · colors'),
           btn('Career', icons.chart, () => this.career()),
@@ -378,6 +398,217 @@ export class UI {
       topbar('Pro Shop', () => { this.a.tap('back'); this.a.previewLoadout(null); back(); }),
       panel,
     ));
+  }
+
+  // ------------------------------------------------------------- online
+
+  /** Create a room or join one with a code. */
+  online(message?: string) {
+    this.a.setMenuBackdrop('orbit');
+    const d = this.a.data;
+    const field = 'background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--text);border-radius:12px;padding:12px 14px;font:inherit;width:100%';
+    const name = h('input', { value: d.name === 'You' ? '' : d.name, maxlength: '16', placeholder: 'Your name', autocomplete: 'nickname', style: field }) as HTMLInputElement;
+    const code = h('input', { value: normalizeCode(this.a.inviteCode), maxlength: '5', placeholder: 'CODE', autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false', class: 'code-input', style: field }) as HTMLInputElement;
+    code.addEventListener('input', () => (code.value = normalizeCode(code.value)));
+    const msg = h('div', { class: 'net-msg' }, message ?? '');
+    const createBtn = h('button', { class: 'btn primary center' }, svg(icons.users), 'Create a room') as HTMLButtonElement;
+    const joinBtn = h('button', { class: 'btn center' }, 'Join') as HTMLButtonElement;
+    const busy = (on: boolean, text = '') => {
+      createBtn.disabled = joinBtn.disabled = on;
+      msg.textContent = text;
+      msg.classList.toggle('busy', on);
+    };
+    const named = () => {
+      const n = name.value.trim();
+      if (!n) {
+        msg.textContent = 'Enter your name so your friends know who you are.';
+        name.focus();
+        return false;
+      }
+      d.name = n;
+      this.a.persist();
+      return true;
+    };
+    createBtn.onclick = async () => {
+      if (!named()) return;
+      this.a.tap('confirm');
+      busy(true, 'Opening a room…');
+      try {
+        await this.a.onlineCreate();
+      } catch (e) {
+        busy(false, (e as Error).message);
+      }
+    };
+    const join = async () => {
+      if (!named()) return;
+      const c = normalizeCode(code.value);
+      if (!validCode(c)) {
+        msg.textContent = 'Room codes are 5 letters and numbers.';
+        code.focus();
+        return;
+      }
+      this.a.tap('confirm');
+      busy(true, `Looking for room ${c}…`);
+      try {
+        await this.a.onlineJoin(c);
+      } catch (e) {
+        busy(false, (e as Error).message);
+      }
+    };
+    joinBtn.onclick = join;
+    code.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') join();
+    });
+    this.mount('online', h('div', { class: 'screen dim' },
+      topbar('Play Online', () => { this.a.tap('back'); this.title(); }),
+      h('div', { class: 'section' }, h('div', { class: 'label' }, 'Your name'), name),
+      h('div', { class: 'panel', style: 'display:grid;gap:10px;margin-bottom:16px' },
+        h('div', { style: 'font:600 15px var(--head);letter-spacing:.06em;text-transform:uppercase' }, 'Host a game'),
+        h('div', { style: 'color:var(--muted);font-size:13px;line-height:1.45' }, 'Get a room code to send your friends. You pick the game; they join from their phone or PC.'),
+        createBtn,
+      ),
+      h('div', { class: 'panel', style: 'display:grid;gap:10px;margin-bottom:12px' },
+        h('div', { style: 'font:600 15px var(--head);letter-spacing:.06em;text-transform:uppercase' }, 'Join a friend'),
+        h('div', { style: 'display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center' }, code, joinBtn),
+      ),
+      msg,
+      h('p', { style: 'color:var(--muted);font-size:12px;line-height:1.5;text-align:center;margin-top:10px' }, `Rooms hold up to ${MAX_MEMBERS} people. Two pitch at a time while everyone else watches live — the winner stays on and the next in line steps up.`),
+    ));
+    if (this.a.inviteCode && d.name !== 'You') code.focus();
+    else if (d.name === 'You') name.focus();
+  }
+
+  private lobbyKey = '';
+  private lobbyBody: HTMLElement | null = null;
+
+  /** The room: code to share, who's here, the game, and the start button. */
+  lobby() {
+    const r = this.a.room;
+    const st = r?.state;
+    if (!r || !st) {
+      this.online();
+      return;
+    }
+    // Room updates arrive every few seconds; only redraw when something changed,
+    // and redraw in place (no screen fade) so the lobby never blinks.
+    const key = JSON.stringify({ ...st, t: 0 }) + (r.lateFor ?? '');
+    if (this.current === 'lobby' && this.lobbyBody && key === this.lobbyKey) return;
+    this.lobbyKey = key;
+    const body = this.lobbyContent(r, st);
+    if (this.current === 'lobby' && this.lobbyBody) {
+      this.lobbyBody.replaceChildren(...body);
+      return;
+    }
+    this.a.setMenuBackdrop('orbit');
+    this.lobbyBody = h('div', { class: 'lobby-body' }, ...body);
+    this.mount('lobby', h('div', { class: 'screen dim' },
+      topbar(`Room ${r.code}`, () => {
+        this.a.tap('back');
+        this.ask(r.isHost ? 'Close the room for everyone?' : 'Leave the room?', r.isHost ? 'Close room' : 'Leave', () => {
+          this.a.onlineLeave();
+          this.online();
+        });
+      }),
+      this.lobbyBody,
+    ));
+  }
+
+  private lobbyContent(r: Room, st: RoomState): HTMLElement[] {
+    const me = r.me.id;
+    const nameOf = (id: string) => st.members.find((m) => m.id === id)?.name ?? '—';
+    const url = inviteUrl(r.code);
+    const text = `Join my Ringers horseshoe room! Code: ${r.code}`;
+    const share = async () => {
+      this.a.tap();
+      const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
+      if (nav.share && layout.coarse) {
+        try {
+          await nav.share({ title: 'Ringers', text, url });
+          return;
+        } catch {
+          /* cancelled: fall back to copying */
+        }
+      }
+      try {
+        await navigator.clipboard.writeText(`${text}\n${url}`);
+        this.toast('Invite copied — paste it to your friends');
+      } catch {
+        this.toast(`Room code: ${r.code}`);
+      }
+    };
+    const playing = st.status === 'playing' && st.match;
+    const out: HTMLElement[] = [
+      h('div', { class: 'panel room-card' },
+        h('div', { class: 'label', style: 'text-align:center;margin-bottom:6px' }, 'Room code'),
+        h('div', { class: 'room-code' }, ...[...r.code].map((ch) => h('span', null, ch))),
+        h('div', { style: 'color:var(--muted);font-size:12px;text-align:center;margin:8px 0 12px' }, 'Friends tap Play Online → Join and enter this code, or open the invite link.'),
+        h('button', { class: 'btn primary center', onclick: share }, svg(layout.coarse ? icons.share : icons.copy), layout.coarse ? 'Invite friends' : 'Copy invite'),
+      ),
+    ];
+    if (playing) {
+      const m = st.match!;
+      out.push(h('div', { class: 'panel now-playing' },
+        h('div', { class: 'label' }, 'Now pitching'),
+        h('div', { class: 'np-line' }, h('b', null, nameOf(m.players[0])), m.score ? h('span', { class: 'np-score' }, `${m.score[0]} – ${m.score[1]}`) : h('span', { class: 'np-score' }, 'vs'), h('b', null, nameOf(m.players[1]))),
+        m.label ? h('div', { style: 'color:var(--muted);font-size:12px;text-align:center' }, m.label) : null,
+        r.lateFor === m.id ? h('div', { style: 'color:var(--gold);font-size:12px;text-align:center;margin-top:6px' }, 'You joined mid-game — you’ll watch the next one live.') : null,
+      ));
+    } else if (st.last) {
+      const l = st.last;
+      out.push(h('div', { class: 'last-result' }, `${nameOf(l.winner)} beat ${nameOf(l.loser)} ${Math.max(...l.score)}–${Math.min(...l.score)}${l.forfeit ? ' (forfeit)' : ''} · winner stays on`));
+    }
+    out.push(h('div', { class: 'label', style: 'margin-top:14px' }, `In the room · ${st.members.length}/${MAX_MEMBERS}`));
+    out.push(h('div', { class: 'panel members' }, ...st.queue.map((id, i) => {
+      const m = st.members.find((x) => x.id === id);
+      if (!m) return h('div');
+      const pitching = playing && st.match!.players.includes(id);
+      const status = pitching ? 'Pitching' : i < 2 ? 'Up next' : `${i - 1}${i - 1 === 1 ? 'st' : i - 1 === 2 ? 'nd' : i - 1 === 3 ? 'rd' : 'th'} in line`;
+      const [hh, ss, vv] = m.loadout.color ?? [0, 0, 0.5];
+      return h('div', { class: `member${id === me ? ' me' : ''}` },
+        h('i', { class: 'dot', style: `background:hsl(${hh},${Math.round(ss * 100)}%,${Math.round(vv * 50)}%)` }),
+        h('span', { class: 'nm' }, m.name, id === me ? h('small', null, ' (you)') : null, id === st.host ? h('small', { class: 'host' }, ' host') : null),
+        h('span', { class: `st${pitching ? ' on' : ''}` }, status),
+      );
+    })));
+    const cfg = st.cfg;
+    const fmtLabel = `${cfg.mode === 'cancellation' ? `Cancellation to ${cfg.target}` : `Count-all, ${cfg.target} shoes`} · ${cfg.distance} ft · ${cfg.pit === 'sand' ? 'sand' : 'blue clay'} · ${cfg.time}`;
+    if (r.isHost && !playing) {
+      const set = (patch: Partial<MatchConfig>) => this.a.onlineConfig({ ...cfg, ...patch });
+      out.push(
+        h('div', { class: 'label', style: 'margin-top:14px' }, 'Game'),
+        seg([
+          { value: 'c21', label: 'To 21', sub: 'Cancellation' },
+          { value: 'c40', label: 'To 40', sub: 'NHPA cancel' },
+          { value: 'a20', label: '20 Shoes', sub: 'Count-all' },
+          { value: 'a40', label: '40 Shoes', sub: 'NHPA count-all' },
+        ], `${cfg.mode === 'cancellation' ? 'c' : 'a'}${cfg.target}`, (v) => set({ mode: v[0] === 'c' ? 'cancellation' : 'countall', target: Number(v.slice(1)) })),
+        h('div', { style: 'height:8px' }),
+        seg([{ value: 40, label: '40 ft' }, { value: 30, label: '30 ft' }], cfg.distance, (v) => set({ distance: v as 40 | 30 })),
+        h('div', { style: 'height:8px' }),
+        seg([{ value: 'sand', label: 'Sand' }, { value: 'clay', label: 'Blue Clay' }], cfg.pit, (v) => set({ pit: v as 'sand' | 'clay' })),
+        h('div', { style: 'height:8px' }),
+        seg([{ value: 'morning', label: 'Morning' }, { value: 'afternoon', label: 'Afternoon' }, { value: 'sunset', label: 'Sunset' }, { value: 'night', label: 'Night' }], cfg.time, (v) => set({ time: v as MatchConfig['time'] })),
+      );
+    } else out.push(h('div', { class: 'label', style: 'margin-top:14px' }, 'Game'), h('div', { class: 'panel', style: 'font-size:13px;color:var(--muted)' }, fmtLabel));
+    const canStart = r.isHost && !playing && st.queue.length >= 2;
+    const startLabel = playing ? 'Match in progress' : st.queue.length < 2 ? 'Waiting for friends to join…' : r.isHost ? `Start: ${nameOf(st.queue[0])} vs ${nameOf(st.queue[1])}` : 'Waiting for the host to start';
+    out.push(
+      h('button', { class: `btn ${canStart ? 'primary' : ''} center`, style: 'margin-top:16px', disabled: canStart ? undefined : true, onclick: () => { this.a.tap('confirm'); this.a.onlineStart(); } }, startLabel),
+      h('button', { class: 'btn center', style: 'margin-top:10px', onclick: () => { this.a.tap(); this.shop(() => { this.a.onlineUpdateMe(); this.lobbyBody = null; this.lobby(); }); } }, svg(icons.bag), 'My shoes'),
+    );
+    return out;
+  }
+
+  private connEl: HTMLElement | null = null;
+  /** Small "Reconnecting…" badge while the online link is down. */
+  connection(ok: boolean) {
+    if (ok) {
+      this.connEl?.remove();
+      this.connEl = null;
+    } else if (!this.connEl) {
+      this.connEl = h('div', { class: 'conn-badge' }, 'Reconnecting…');
+      overlayRoot().append(this.connEl);
+    }
   }
 
   career() {
