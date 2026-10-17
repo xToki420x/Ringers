@@ -16,7 +16,9 @@ import { loadBody } from './humanBody';
 import { LOOKS, Pitcher } from './pitcher';
 import { SandPit } from './sandPit';
 import { createShoeMesh } from './shoeMesh';
-import { concreteMaps, grassMaps, sandMaps, woodMaps, type MapSet, type Quality } from './textures';
+import { concreteMaps, woodMaps, type MapSet, type Quality } from './textures';
+import { sandMaps } from './sandTextures';
+import { grassMaps } from './lawnTextures';
 
 /**
  * The 3D world: renderer, scene graph, court, deformable pits, shoes,

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BOX, HALF_COURT, PIT } from '../core/constants';
 import type { Quality } from './textures';
+import type { GrassStyle } from './lawn';
 
 /**
  * Instanced 3D grass: individual mown blades with a root-to-tip colour
@@ -10,9 +11,21 @@ import type { Quality } from './textures';
  * and thin out across neighbouring courts.
  */
 
-export interface GrassRegion {
-  /** Exclusion test: true where grass must not grow (pits, boxes, platforms). */
-  blocked(x: number, z: number): boolean;
+export interface GrassArea {
+  x0: number;
+  x1: number;
+  z0: number;
+  z1: number;
+  /** Blades per square metre at high quality. */
+  perM2: number;
+}
+
+export interface GrassOptions {
+  style: GrassStyle;
+  /** Where blades grow (defaults: the main court and the lawn beside it). */
+  areas?: GrassArea[];
+  /** Extra places grass must not grow (props, paths), on top of the pitching boxes. */
+  blocked?: (x: number, z: number) => boolean;
 }
 
 function rand(seed: number) {
@@ -30,7 +43,7 @@ export class Grass {
   readonly mesh: THREE.Mesh;
   private readonly uniforms = { uTime: { value: 0 }, uWind: { value: 1 } };
 
-  constructor(q: Quality) {
+  constructor(q: Quality, opts: GrassOptions = { style: 'manicured' }) {
     // One blade: a tapered, slightly cupped strip of 4 segments.
     const seg = 4;
     const pos: number[] = [];
@@ -57,7 +70,9 @@ export class Grass {
     const rnd = rand(1234);
     const offsets: number[] = [];
     const params: number[] = [];
+    const extra = opts.blocked;
     const blocked = (x: number, z: number) => {
+      if (extra?.(x, z)) return true;
       for (const zc of [-HALF_COURT, HALF_COURT]) {
         const dz = Math.abs(z - zc);
         // Pitcher's box (pit, frame and platforms) plus the backboard footing.
@@ -81,9 +96,12 @@ export class Grass {
       }
     };
     // Main court and the lawn beyond each box (close-up territory).
-    scatter(-2.0, 2.0, -HALF_COURT - 3.2, HALF_COURT + 3.2, 820);
-    scatter(-4.5, -2.0, -HALF_COURT - 3.2, HALF_COURT + 3.2, 220);
-    scatter(2.0, 4.5, -HALF_COURT - 3.2, HALF_COURT + 3.2, 220);
+    const areas = opts.areas ?? [
+      { x0: -2.0, x1: 2.0, z0: -HALF_COURT - 3.2, z1: HALF_COURT + 3.2, perM2: 820 },
+      { x0: -4.5, x1: -2.0, z0: -HALF_COURT - 3.2, z1: HALF_COURT + 3.2, perM2: 220 },
+      { x0: 2.0, x1: 4.5, z0: -HALF_COURT - 3.2, z1: HALF_COURT + 3.2, perM2: 220 },
+    ];
+    for (const a of areas) scatter(a.x0, a.x1, a.z0, a.z1, a.perM2);
     blade.setAttribute('offset', new THREE.InstancedBufferAttribute(new Float32Array(offsets), 3));
     blade.setAttribute('params', new THREE.InstancedBufferAttribute(new Float32Array(params), 4));
     blade.instanceCount = offsets.length / 3;

@@ -2,6 +2,7 @@ import type { PitchDistance } from '../core/constants';
 import type { Grip, Loadout } from '../core/equipment';
 import { scoreInning, type InningScore, type ScoringMode, type ShoeResult } from '../core/scoring';
 import type { PitMaterial } from '../physics/physicsWorld';
+import type { VenueId } from '../render/venues';
 
 export interface PlayerInfo {
   id: string;
@@ -26,6 +27,8 @@ export interface MatchConfig {
   distance: PitchDistance;
   pit: PitMaterial;
   time: TimeOfDay;
+  /** Where the game is played (older saves have none: the championship grounds). */
+  venue?: VenueId;
 }
 
 export interface PlayerStats {
