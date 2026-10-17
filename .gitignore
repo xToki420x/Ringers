@@ -23,3 +23,5 @@ ios/DerivedData
 desktop/app
 desktop/release
 desktop/node_modules
+# Temporary agent worktrees
+.claude/worktrees/
