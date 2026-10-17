@@ -19,3 +19,7 @@ ios/App/build
 ios/DerivedData
 *.keystore
 *.jks
+# Desktop app: copied game files and installer output
+desktop/app
+desktop/release
+desktop/node_modules

@@ -1,9 +1,11 @@
 name: Package
 
 # Builds the installable packages:
-#   - Ringers-<version>.apk          Android app, installable by sideloading
-#   - Ringers-<version>-release.aab  Android App Bundle for Google Play (signed when secrets are set)
-#   - Ringers-<version>-web.zip      static web build (upload to any web host)
+#   - Ringers-Setup-<version>.exe     Windows installer (Start menu + desktop shortcut)
+#   - Ringers-<version>-portable.exe  Windows app that runs without installing
+#   - Ringers-<version>.apk           Android app, installable by sideloading
+#   - Ringers-<version>-release.aab   Android App Bundle for Google Play (signed when secrets are set)
+#   - Ringers-<version>-web.zip       static web build (upload to any web host)
 # Every push builds them as workflow artifacts. A GitHub Release is published
 # when a tag like v1.0.0 is pushed, or automatically the first time a new
 # "version" from package.json is pushed (bump the version to cut a release).
@@ -98,8 +100,63 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Ringers-${{ env.VERSION }}
+          name: Ringers-${{ env.VERSION }}-android-web
           path: packages/*
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Version
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then VERSION="${GITHUB_REF_NAME#v}"; fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Build the Windows app
+        shell: bash
+        working-directory: desktop
+        env:
+          # No code-signing certificate: build unsigned.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npm ci --no-audit --no-fund
+          npm pkg set version="$VERSION"
+          npm run dist:win
+          ls -la release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ringers-${{ env.VERSION }}-windows
+          path: |
+            desktop/release/Ringers-Setup-*.exe
+            desktop/release/Ringers-*-portable.exe
+
+  release:
+    needs: [android-and-web, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then VERSION="${GITHUB_REF_NAME#v}"; fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Is this version released yet?
         id: released
@@ -114,6 +171,12 @@ jobs:
             echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - uses: actions/download-artifact@v4
+        if: steps.released.outputs.publish == 'true'
+        with:
+          path: packages
+          merge-multiple: true
+
       - name: Publish GitHub Release
         if: steps.released.outputs.publish == 'true'
         uses: softprops/action-gh-release@v2
@@ -125,6 +188,7 @@ jobs:
           body: |
             **Ringers ${{ env.VERSION }}** — championship horseshoes in 3D.
 
+            - **Windows PC:** download `Ringers-Setup-${{ env.VERSION }}.exe` and run it (it adds Ringers to the Start menu and desktop), or use `Ringers-${{ env.VERSION }}-portable.exe` to play without installing. The app isn't code-signed yet, so Windows may say "Windows protected your PC": click **More info → Run anyway**.
             - **Android:** download `Ringers-${{ env.VERSION }}.apk` on your phone and open it (allow installs from your browser when asked).
             - **Web:** unzip `Ringers-${{ env.VERSION }}-web.zip` onto any static web host, or open it locally with `npx serve`.
             - **Google Play:** `Ringers-${{ env.VERSION }}-release.aab` is the bundle to upload (sign it, or add signing secrets to the repository).

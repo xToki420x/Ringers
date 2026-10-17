@@ -9,6 +9,7 @@ import { EXHIBITION_OPPONENTS } from '../game/roster';
 import type { SaveData } from '../game/save';
 import { HUMAN_ID, humanPool, nextHumanGame, opponentOf, poolStandings, stageLabel, type Tournament } from '../game/tournament';
 import { h, icons, meter, seg, svg, toggle, topbar } from './dom';
+import { canFullscreen, layout, tapWord, toggleFullscreen } from './layout';
 
 export interface UIActions {
   data: SaveData;
@@ -32,6 +33,9 @@ export interface UIActions {
 }
 
 const IN_PER_M = 1 / 0.0254;
+
+/** Layer for dialogs and toasts (scaled with the interface on big screens). */
+const overlayRoot = () => document.getElementById('overlay') ?? document.getElementById('app')!;
 
 export class UI {
   readonly screens = document.getElementById('screens')!;
@@ -73,6 +77,43 @@ export class UI {
 
   // ------------------------------------------------------------ plumbing
 
+  /** Keyboard shortcuts for menus and dialogs. Returns true when the key was used. */
+  key(k: string): boolean {
+    const overlay = overlayRoot();
+    const modals = overlay.querySelectorAll<HTMLElement>('.modal');
+    const modal = modals[modals.length - 1];
+    const primary = modal?.querySelector<HTMLButtonElement>('.btn.primary');
+    if (k === 'Escape') {
+      // Pause menu: resume. Confirmations: cancel.
+      if (modal) {
+        if (modal.dataset.kind === 'pause' || modal.dataset.kind === 'ask') {
+          primary?.click();
+          return true;
+        }
+        return false;
+      }
+      const back = this.screens.querySelector<HTMLButtonElement>('.topbar .back');
+      if (back) {
+        back.click();
+        return true;
+      }
+      return false;
+    }
+    if (k === 'Enter' && primary) {
+      primary.click();
+      return true;
+    }
+    if ((k === 'z' || k === 'Z') && !this.screens.childElementCount && this.zoomBtn.style.visibility !== 'hidden') {
+      this.zoomBtn.click();
+      return true;
+    }
+    if ((k === 'r' || k === 'R') && !this.replayEl.classList.contains('hidden')) {
+      this.replayEl.click();
+      return true;
+    }
+    return false;
+  }
+
   private mount(name: string, el: HTMLElement) {
     this.current = name;
     this.screens.replaceChildren(el);
@@ -85,17 +126,17 @@ export class UI {
 
   /** In-game confirmation dialog (browser confirm() is unavailable in embedded views). */
   ask(question: string, action: string, onYes: () => void) {
-    const modal = h('div', { class: 'modal' }, h('div', { class: 'panel', style: 'display:grid;gap:10px;text-align:center' },
+    const modal = h('div', { class: 'modal', 'data-kind': 'ask' }, h('div', { class: 'panel', style: 'display:grid;gap:10px;text-align:center' },
       h('div', { style: 'font:600 18px var(--head);letter-spacing:.04em;margin:4px 0 6px' }, question),
       h('button', { class: 'btn center', style: 'color:var(--red)', onclick: () => { modal.remove(); this.a.tap('confirm'); onYes(); } }, action),
       h('button', { class: 'btn primary center', onclick: () => { modal.remove(); this.a.tap('back'); } }, 'Cancel'),
     ));
-    document.getElementById('app')!.append(modal);
+    overlayRoot().append(modal);
   }
 
   toast(text: string, ms = 2200) {
     const t = h('div', { class: 'toast' }, text);
-    document.getElementById('app')!.append(t);
+    overlayRoot().append(t);
     setTimeout(() => t.remove(), ms);
   }
 
@@ -333,7 +374,7 @@ export class UI {
       refreshEquip();
     };
     render();
-    this.mount('shop', h('div', { class: 'screen', style: 'background:linear-gradient(180deg,rgba(8,11,16,.5),rgba(8,11,16,0) 18%)' },
+    this.mount('shop', h('div', { class: 'screen shop-screen', style: 'background:linear-gradient(180deg,rgba(8,11,16,.5),rgba(8,11,16,0) 18%)' },
       topbar('Pro Shop', () => { this.a.tap('back'); this.a.previewLoadout(null); back(); }),
       panel,
     ));
@@ -385,7 +426,7 @@ export class UI {
         row('Name', 'Shown on the scoreboard', name),
         row('Pitching hand', 'Mirrors your delivery', seg([{ value: 1, label: 'Right' }, { value: -1, label: 'Left' }], s.hand, (v) => { s.hand = v as 1 | -1; save(); })),
         row('Volume', 'Effects and crowd', vol),
-        row('Haptics', 'Vibration on release and ringers', toggle(s.haptics, (v) => { s.haptics = v; save(); })),
+        layout.coarse ? row('Haptics', 'Vibration on release and ringers', toggle(s.haptics, (v) => { s.haptics = v; save(); })) : null,
         row('Aim guides', 'Power zone and stroke guide', toggle(s.guides, (v) => { s.guides = v; save(); })),
         row('Slow motion', 'Slow down shoes arriving at the stake', toggle(s.slowmo, (v) => { s.slowmo = v; save(); })),
         row('Quick opponent turns', 'Skip the broadcast camera for AI shoes', toggle(s.fastAi, (v) => { s.fastAi = v; save(); })),
@@ -394,6 +435,19 @@ export class UI {
       h('button', { class: 'btn center', style: 'margin-top:16px;color:var(--red)', onclick: () => {
         this.ask('Erase all progress, stats and settings?', 'Reset', () => { this.a.resetData(); this.toast('Progress reset'); back(); });
       } }, 'Reset progress'),
+      !layout.coarse && canFullscreen() ? h('button', { class: 'btn center', style: 'margin-top:10px', onclick: () => { this.a.tap(); toggleFullscreen(); } }, 'Full screen (F)') : null,
+      !layout.coarse
+        ? h('div', { class: 'panel keys' },
+            ...([
+              ['Mouse', 'Press on the lower screen, drag down, then up, and let go on the line'],
+              ['Space', 'Speed up a slow-motion flight'],
+              ['Z', 'Zoom the aim view'],
+              ['R', 'Instant replay'],
+              ['F', 'Full screen'],
+              ['Esc', 'Pause · back · cancel'],
+              ['Enter', 'Confirm'],
+            ] as [string, string][]).flatMap(([k, v]) => [h('kbd', null, k), h('span', null, v)]))
+        : null,
       h('p', { style: 'color:var(--muted);font-size:11px;text-align:center;margin-top:14px' }, 'Ringers · Court, stake and shoe dimensions follow NHPA rules.'),
     ));
   }
@@ -401,9 +455,9 @@ export class UI {
   tutorial(onDone?: () => void) {
     let step = 0;
     const steps = [
-      { t: 'Pull back', p: 'Touch the lower screen and drag DOWN. That’s your backswing — the further you pull, the more power. Stop in the green zone on the power meter.', anim: 'pull' },
-      { t: 'Swing through', p: 'Push UP in a straight line. Drifting sideways pulls the shoe off line; a wobbly stroke makes it wobble in the air.', anim: 'push' },
-      { t: 'Release for one flip', p: 'Lift your finger as it crosses the green RELEASE line where you first touched. On the line = one perfect flip, landing flat and open. Early under-rotates; late over-rotates.', anim: 'release' },
+      { t: 'Pull back', p: `${layout.coarse ? 'Touch the lower screen' : 'Press the mouse button on the lower screen'} and drag DOWN. That’s your backswing — the further you pull, the more power. Stop in the green zone on the power meter.`, anim: 'pull' },
+      { t: 'Swing through', p: `${layout.coarse ? 'Push' : 'Move the mouse'} UP in a straight line. Drifting sideways pulls the shoe off line; a wobbly stroke makes it wobble in the air.`, anim: 'push' },
+      { t: 'Release for one flip', p: `${layout.coarse ? 'Lift your finger' : 'Let go of the button'} as it crosses the green RELEASE line where you first ${layout.coarse ? 'touched' : 'clicked'}. On the line = one perfect flip, landing flat and open. Early under-rotates; late over-rotates.`, anim: 'release' },
       { t: 'Score', p: 'Ringer = 3 points. Any shoe within 6″ of the stake = 1. In cancellation games ringers cancel and only one pitcher scores each inning. Leaners count as 1.', anim: '' },
     ];
     const modal = h('div', { class: 'modal' });
@@ -421,7 +475,7 @@ export class UI {
       ));
     };
     render();
-    document.getElementById('app')!.append(modal);
+    overlayRoot().append(modal);
   }
 
   // -------------------------------------------------------- tournament
@@ -641,7 +695,7 @@ export class UI {
           rec.score.call === 'Count-all'
             ? h('span', { class: 'pts' }, h('span', { style: 'color:var(--p0)' }, `+${p0}`), ' · ', h('span', { style: 'color:var(--p1)' }, `+${p1}`))
             : h('span', { class: 'pts', style: `color:var(--p${who < 0 ? 0 : who})` }, who === -1 ? '0' : `${names[who].split(' ')[0]} +${Math.max(p0, p1)}`)),
-      h('div', { style: 'text-align:center;color:var(--muted);font-size:11px;margin-top:10px;letter-spacing:.1em;text-transform:uppercase' }, 'Tap to continue'),
+      h('div', { style: 'text-align:center;color:var(--muted);font-size:11px;margin-top:10px;letter-spacing:.1em;text-transform:uppercase' }, `${tapWord()} to continue`),
     );
     return el;
   }
@@ -684,7 +738,7 @@ export class UI {
   }
 
   pauseMenu(inPractice: boolean) {
-    const modal = h('div', { class: 'modal' }, h('div', { class: 'panel', style: 'display:grid;gap:10px' },
+    const modal = h('div', { class: 'modal', 'data-kind': 'pause' }, h('div', { class: 'panel', style: 'display:grid;gap:10px' },
       h('div', { style: 'font:700 24px var(--head);text-transform:uppercase;text-align:center;margin-bottom:4px' }, 'Paused'),
       h('button', { class: 'btn primary center', onclick: () => { modal.remove(); this.a.resume(); } }, 'Resume'),
       h('button', { class: 'btn center', onclick: () => { modal.remove(); this.tutorial(() => this.a.resume()); } }, 'How to pitch'),
@@ -694,7 +748,7 @@ export class UI {
       } }, 'Settings'),
       h('button', { class: 'btn center', style: 'color:var(--red)', onclick: () => { modal.remove(); this.a.quitToMenu(); } }, inPractice ? 'End practice' : 'Quit match'),
     ));
-    document.getElementById('app')!.append(modal);
+    overlayRoot().append(modal);
   }
 
   versus(names: [string, string], subs: [string, string], title: string) {

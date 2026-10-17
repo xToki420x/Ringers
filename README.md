@@ -1,6 +1,6 @@
 # Ringers
 
-**Championship horseshoe pitching for your phone — full 3D, real physics, regulation everything.**
+**Championship horseshoe pitching for your phone and PC — full 3D, real physics, regulation everything.**
 
 Ringers is a mobile-first 3D horseshoe game built for people who actually pitch. Courts, stakes, pits and
 shoes follow the NHPA rule book; shoes fly, flip and land under a purpose-built rigid-body simulation; and the
@@ -86,6 +86,8 @@ The **Package** workflow (`.github/workflows/package.yml`) builds everything on 
 
 | File | What it is |
 | --- | --- |
+| `Ringers-Setup-<version>.exe` | Windows PC installer: adds Ringers to the Start menu and desktop. |
+| `Ringers-<version>-portable.exe` | Windows PC app that runs without installing. |
 | `Ringers-<version>.apk` | Android app. Download it on an Android phone and open it to install. |
 | `Ringers-<version>-release.aab` | Android App Bundle for the Google Play Console. |
 | `Ringers-<version>-web.zip` | The web version. Unzip onto any static web host; it installs to the home screen and works offline. |
@@ -107,6 +109,22 @@ build from a different machine) and the AAB is unsigned. To sign release builds,
 keytool -genkeypair -v -keystore ringers.jks -alias ringers -keyalg RSA -keysize 2048 -validity 10000
 base64 -w0 ringers.jks   # paste as ANDROID_KEYSTORE_BASE64
 ```
+
+**Windows PC.** The desktop app (`desktop/`) is the same game in its own window, built with Electron. The
+builds aren't code-signed, so the first launch shows Windows SmartScreen: **More info → Run anyway**. To build
+or run it yourself:
+
+```bash
+npm ci && npm run build
+cd desktop && npm ci
+npm start          # run it in a window
+npm run dist:win   # build the installer and portable .exe into desktop/release (on Windows)
+```
+
+On a PC (browser or app) the game switches to a wide layout: menus beside the 3D scene, the interface scaled to
+the screen, shots reframed for widescreen. Pitch with the mouse (press on the lower screen, drag down, then up,
+and let go on the line). Keys: **Space** speeds up a slow-motion flight, **Z** zooms the aim view, **R** replays,
+**F** (or **F11** in the app) toggles full screen, **Esc** pauses or goes back, **Enter** confirms.
 
 **iPhone.** The Xcode project lives in `ios/`. On a Mac with Xcode:
 

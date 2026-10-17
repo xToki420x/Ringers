@@ -61,6 +61,8 @@ const KEY = 'ringers.save.v1';
 function defaultQuality(): Quality {
   const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 4;
   const cores = navigator.hardwareConcurrency ?? 4;
+  // PCs and laptops (mouse, not touch) get the full-detail scene.
+  if (window.matchMedia?.('(pointer: fine)').matches && cores >= 4) return 'high';
   if (mem <= 2 || cores <= 4) return 'low';
   if (mem <= 4) return 'medium';
   return 'high';

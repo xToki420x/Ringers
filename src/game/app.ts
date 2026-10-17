@@ -10,6 +10,7 @@ import { Pitcher } from '../render/pitcher';
 import { Stage } from '../render/stage';
 import { applyShoeLook, createShoeMesh } from '../render/shoeMesh';
 import { UI, type UIActions } from '../ui/ui';
+import { layout, toggleFullscreen, updateLayout } from '../ui/layout';
 import { aiDeliveryError } from './ai';
 import { Match, ringerPct, type MatchConfig, type PlayerInfo } from './match';
 import { EXHIBITION_OPPONENTS } from './roster';
@@ -104,9 +105,31 @@ export class App implements UIActions {
         this.swing = 0;
       },
     });
+    updateLayout();
     window.addEventListener('resize', () => {
+      updateLayout();
       this.stage.resize();
       this.control.resize();
+    });
+    // Keyboard for PC players: Esc pauses or goes back, F toggles full screen,
+    // Space speeds up a slow-motion flight, Z zooms the aim view, R replays.
+    window.addEventListener('keydown', (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && (t as HTMLInputElement).type !== 'range'))) return;
+      sfx.unlock();
+      if (e.key === 'f' || e.key === 'F') {
+        toggleFullscreen();
+        e.preventDefault();
+      } else if (this.ui.key(e.key)) {
+        e.preventDefault();
+      } else if (e.key === 'Escape' && this.inGame() && !this.paused) {
+        this.pause();
+        e.preventDefault();
+      } else if ((e.key === ' ' || e.key === 'Enter') && this.phase === 'flight' && !this.paused) {
+        this.skipSlowmo = true;
+        e.preventDefault();
+      }
     });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
@@ -339,12 +362,12 @@ export class App implements UIActions {
   private setPhase(p: Phase) {
     this.phase = p;
     this.phaseT = 0;
-    if (p !== 'menu' && p !== 'gameover' && this.viewShift !== 0) {
-      this.viewShift = 0;
+    if (p !== 'menu' && p !== 'gameover' && this.viewShift !== '0,0') {
+      this.viewShift = '0,0';
       this.stage.setViewShift(0);
     }
   }
-  private viewShift = -1;
+  private viewShift = '';
 
   // ---------------------------------------------------------------- turns
 
@@ -443,7 +466,7 @@ export class App implements UIActions {
     if (off.length() < 0.6) this.stage.setShoeVisualOffset(shoe.id, off);
     this.stage.showViewShoe(null);
     this.stage.rig.set(this.stage.releaseShot(this.pitchFrom(), this.cfg().distance, SIDE_FOR_HAND(p.hand), p.hand), true);
-    this.ui.hint('Tap to speed up');
+    this.ui.hint(layout.coarse ? 'Tap to speed up' : 'Click or press Space to speed up');
     this.showReadout(g);
   }
 
@@ -591,10 +614,16 @@ export class App implements UIActions {
   }
 
   private updateMenu() {
-    const shift = this.menuKind === 'shop' ? 0.31 : 0.15;
-    if (this.viewShift !== shift) {
-      this.viewShift = shift;
-      this.stage.setViewShift(shift);
+    // Phones: menus sit below the scene, so lift it. Wide screens: menus sit
+    // beside it (title menu on the left, shop panel on the right).
+    const shop = this.menuKind === 'shop';
+    const W = window.innerWidth;
+    const fy = layout.wide ? 0 : shop ? 0.31 : 0.15;
+    const fx = !layout.wide ? 0 : shop ? (488 * layout.scale) / (2 * W) : -(460 * layout.scale + 0.06 * W) / (2 * W);
+    const key = `${fy},${fx.toFixed(4)}`;
+    if (this.viewShift !== key) {
+      this.viewShift = key;
+      this.stage.setViewShift(fy, fx);
     }
     if (this.menuKind === 'shop' && this.shopShoe) {
       const t = performance.now() / 1000;

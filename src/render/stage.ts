@@ -33,6 +33,17 @@ export function toWorld(v: THREE.Vector3, pitchFrom: 0 | 1): THREE.Vector3 {
   return pitchFrom === 0 ? v : v.set(-v.x, v.y, -v.z);
 }
 
+/**
+ * Shots are framed for a tall phone screen. On a wide screen the same
+ * vertical field of view would shrink everything, so it is narrowed
+ * (smoothly, with the aspect ratio) to keep the subject a similar size.
+ */
+export function landscapeFov(fov: number, aspect: number): number {
+  if (aspect <= 0.75) return fov;
+  const f = Math.max(0.6, Math.sqrt(0.75 / aspect));
+  return (2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(fov) / 2) * f) * 180) / Math.PI;
+}
+
 export class CameraRig {
   readonly pos = new THREE.Vector3(0, 2, -10);
   readonly look = new THREE.Vector3(0, 0, 0);
@@ -68,8 +79,9 @@ export class CameraRig {
       this.camera.position.add(new THREE.Vector3((Math.random() - 0.5) * s, (Math.random() - 0.5) * s, (Math.random() - 0.5) * s));
     }
     this.camera.lookAt(this.look);
-    if (Math.abs(this.camera.fov - this.fov) > 0.01) {
-      this.camera.fov = this.fov;
+    const fov = landscapeFov(this.fov, this.camera.aspect);
+    if (Math.abs(this.camera.fov - fov) > 0.01) {
+      this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
     }
   }
@@ -471,7 +483,7 @@ export class Stage {
     const scale = halfH / 0.24;
     s.scale.setScalar(scale);
     const back = Math.max(0, -swing);
-    s.position.set(hand * halfW * 0.42, -halfH * (0.62 + back * 0.55) + Math.max(0, swing) * halfH * 0.5, -dist);
+    s.position.set(hand * Math.min(halfW * 0.42, halfH * 0.3), -halfH * (0.62 + back * 0.55) + Math.max(0, swing) * halfH * 0.5, -dist);
     s.rotation.set(0, 0, 0);
     if (grip === 'flip') {
       // Held flat, heels toward the stake; tips back on the backswing.
@@ -483,15 +495,25 @@ export class Stage {
     }
   }
 
-  /** Shift the projection so the subject sits in the top part of the screen (menus). */
-  setViewShift(fraction: number) {
-    const w = this.canvas.clientWidth || window.innerWidth;
-    const h = this.canvas.clientHeight || window.innerHeight;
-    if (fraction === 0) this.camera.clearViewOffset();
-    else this.camera.setViewOffset(w, h, 0, h * fraction, w, h);
-    this.viewShift = fraction;
+  /**
+   * Shift the projection so the subject sits off-centre for menus: `fy` moves
+   * it up (phones: menu below), `fx` moves it left (PCs: menu to the right;
+   * negative moves it right).
+   */
+  setViewShift(fy: number, fx = 0) {
+    this.viewShift = fy;
+    this.viewShiftX = fx;
+    this.applyViewShift();
   }
   private viewShift = 0;
+  private viewShiftX = 0;
+
+  private applyViewShift() {
+    const w = this.canvas.clientWidth || window.innerWidth;
+    const h = this.canvas.clientHeight || window.innerHeight;
+    if (!this.viewShift && !this.viewShiftX) this.camera.clearViewOffset();
+    else this.camera.setViewOffset(w, h, w * this.viewShiftX, h * this.viewShift, w, h);
+  }
 
   // Dynamic resolution: trade pixel density for frame rate on slower phones.
   private maxRatio = 1;
@@ -541,7 +563,7 @@ export class Stage {
       this.composer.setSize(w, h);
     }
     this.camera.aspect = w / h;
-    if (this.viewShift) this.camera.setViewOffset(w, h, 0, h * this.viewShift, w, h);
+    this.applyViewShift();
     this.camera.updateProjectionMatrix();
   }
 

@@ -28,9 +28,10 @@ boot().catch((err) => {
   if (msg) msg.textContent = 'This device could not start the 3D renderer.';
 });
 
-// Offline caching for the web version only; the native apps bundle their files.
+// Offline caching for the web version only; the phone and PC apps bundle their files.
 const isNative = !!(window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.();
-if ('serviceWorker' in navigator && import.meta.env.PROD && !isNative) {
+const isWeb = location.protocol === 'https:' || location.protocol === 'http:';
+if ('serviceWorker' in navigator && import.meta.env.PROD && !isNative && isWeb) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch(() => undefined);
   });
