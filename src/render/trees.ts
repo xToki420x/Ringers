@@ -152,7 +152,7 @@ const treeGeometry = (species: TreeSpecies, variant: number, q: Quality) =>
 const LEAF_TINT: Record<TreeSpecies, { bright: [number, number]; warm: number }> = {
   oak: { bright: [0.82, 1.06], warm: 0.12 },
   maple: { bright: [0.86, 1.1], warm: 0.22 },
-  birch: { bright: [0.9, 1.12], warm: 0.16 },
+  birch: { bright: [0.86, 1.06], warm: 0.16 },
   pine: { bright: [0.8, 1.0], warm: 0.08 },
 };
 

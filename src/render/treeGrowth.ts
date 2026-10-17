@@ -454,7 +454,7 @@ function birch(g: Grower, variant: number, q: Quality): TreeSkeleton {
           flex: 0.35,
           phase: branch.phase,
         });
-        for (let n = 0; n < 4; n++) g.spray(twig, 0.3 + n * 0.23, g.range(0.75, 1.0) / Math.sqrt(0.55 + 0.45 * k), centre, 0.3, -0.25);
+        for (let n = 0; n < 4; n++) g.spray(twig, 0.3 + n * 0.23, g.range(0.85, 1.1) / Math.sqrt(0.55 + 0.45 * k), centre, 0.3, -0.25);
       }
       if (q === 'low') for (let n = 0; n < 6; n++) g.spray(branch, 0.3 + n * 0.14, g.range(1.25, 1.55), centre, 0.35, -0.2);
       else g.spray(branch, 1, g.range(0.75, 0.95), centre, 0.3, -0.1);

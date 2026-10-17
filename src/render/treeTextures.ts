@@ -517,7 +517,7 @@ function paintSpray(g: Ctx, species: TreeSpecies, row: number) {
         for (let i = 2; i < pts.length; i++) {
           const p = pts[i];
           const len = range(0.075, 0.1);
-          leaf(g, p.x, p.y, p.a + side() * range(0.6, 1.3), birchLeaf(len, len * range(0.38, 0.44)), len, range(78, 92), range(46, 60), range(28, 40), 3);
+          leaf(g, p.x, p.y, p.a + side() * range(0.6, 1.3), birchLeaf(len, len * range(0.38, 0.44)), len, range(80, 94), range(44, 56), range(23, 34), 3);
         }
       break;
     }
@@ -570,7 +570,7 @@ function paintSpray(g: Ctx, species: TreeSpecies, row: number) {
 }
 
 /** Mean colour of each species' leaves, given to the transparent texels so mip levels never darken leaf edges. */
-const LEAF_BACKDROP: Record<TreeSpecies, RGB> = { oak: [52, 74, 34], maple: [61, 87, 38], birch: [88, 112, 46], pine: [38, 58, 38] };
+const LEAF_BACKDROP: Record<TreeSpecies, RGB> = { oak: [52, 74, 34], maple: [61, 87, 38], birch: [74, 98, 42], pine: [38, 58, 38] };
 
 /** The foliage atlas: real leaf and needle sprays on transparent ground. */
 export function leafAtlas(q: Quality): THREE.DataTexture {
