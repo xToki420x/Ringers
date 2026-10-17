@@ -95,6 +95,29 @@ function voronoi(W: number, H: number, nx: number, ny: number, seed: number, war
 /** `f` sampled `dx` texels across (wrapping), for warping ridges sideways. */
 const across = (f: Float32Array, W: number, i: number, x: number, dx: number) => f[i - x + ((((x + Math.round(dx)) % W) + W) % W)];
 
+/**
+ * Bark split into plates: wandering vertical fissures `cols` to a tile, the strips between them
+ * broken crosswise `rows` times at a different height in each strip. Per texel: distance in
+ * texels to the nearest fissure (`dx`) and cross break (`dy`), and the plate's random value (`own`).
+ */
+function strips(W: number, H: number, cols: number, rows: number, wander: number, seed: number) {
+  const warp = field(W, H, 3, 4, 2, seed), wobble = field(W, H, 12, 16, 1, seed + 1);
+  const cw = W / cols, ch = H / rows;
+  const dx = new Float32Array(W * H), dy = new Float32Array(W * H), own = new Float32Array(W * H);
+  for (let y = 0, i = 0; y < H; y++)
+    for (let x = 0; x < W; x++, i++) {
+      const u = (x / W) * cols + (warp[i] - 0.5) * wander + (wobble[i] - 0.5) * 0.35;
+      const ci = Math.floor(u), f = u - ci, col = ((ci % cols) + cols) % cols;
+      // Cross breaks slant a little and sit at a different height in every strip.
+      const v = (y / H) * rows + hash(col, 0, seed + 2) * rows + (f - 0.5) * (hash(col, 1, seed + 2) - 0.5) * 0.9 + (wobble[i] - 0.5) * 0.12;
+      const ri = Math.floor(v), g = v - ri, row = ((ri % rows) + rows) % rows;
+      dx[i] = Math.min(f, 1 - f) * cw;
+      dy[i] = Math.min(g, 1 - g) * ch;
+      own[i] = hash(col, row, seed + 3);
+    }
+  return { dx, dy, own };
+}
+
 const smooth = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
@@ -127,39 +150,38 @@ class Paint {
 type BarkPainter = (W: number, H: number, height: Float32Array, paint: (i: number, p: Paint) => void) => void;
 
 const BARK: Record<TreeSpecies, { paint: BarkPainter; relief: number }> = {
-  // Thick, deeply furrowed oak bark: tall interlaced ridges broken by cross cracks, lichen on the ridges.
+  // Thick, deeply furrowed oak bark: tall interlaced ridges between dark furrows, the ridges rough
+  // and grainy, with grey weathering and the odd patch of lichen.
   oak: {
     relief: 1.6,
     paint(W, H, height, out) {
-      const warp = field(W, H, 4, 2, 2, 11), mottle = field(W, H, 4, 6, 3, 15), grain = field(W, H, 32, 4, 2, 14);
+      const warp = field(W, H, 4, 2, 2, 11), mottle = field(W, H, 4, 6, 3, 15), grain = field(W, H, 40, 6, 2, 14);
       const { gap } = voronoi(W, H, 14, 3, 12, warp);
-      const cracks = field(W, H, 9, 26, 1, 13);
-      const furrow: RGB = [38, 31, 25], ridgeTop: RGB = [126, 114, 98], weathered: RGB = [92, 78, 64], lichen: RGB = [136, 140, 112];
+      const rough = field(W, H, 32, 64, 1, 16);
+      const furrow: RGB = [30, 25, 21], ridgeTop: RGB = [122, 110, 95], weathered: RGB = [86, 75, 63], lichen: RGB = [132, 138, 108];
       const p = new Paint();
-      for (let y = 0, i = 0; y < H; y++)
-        for (let x = 0; x < W; x++, i++) {
-          // Furrows wander in width; ridges stay narrow and rough.
-          const n = grain[i] * 0.12;
-          const ridge = smooth(0.08 + n, 0.3 + n, gap[i]);
-          const crack = smooth(0.64, 0.74, cracks[i]) * ridge;
-          const g = grain[i], m = mottle[i];
-          const h = ridge * (0.75 + 0.25 * g) - crack * 0.5;
-          height[i] = h;
-          p.lerp(furrow, ridgeTop, h).mix(weathered, (1 - m) * 0.5);
-          out(i, p.mix(lichen, smooth(0.66, 0.8, m) * ridge * 0.4));
-        }
+      for (let i = 0; i < W * H; i++) {
+        // Furrows wander in width and fall away steeply; ridge tops are rounded and rough.
+        const n = grain[i] * 0.1;
+        const ridge = smooth(0.05 + n, 0.2 + n, gap[i]);
+        const g = grain[i], m = mottle[i], r = rough[i];
+        const h = ridge * (0.62 + 0.22 * g + 0.16 * r);
+        height[i] = h;
+        p.lerp(furrow, ridgeTop, h * (0.85 + 0.3 * r)).mix(weathered, (1 - m) * 0.5);
+        out(i, p.mix(lichen, smooth(0.66, 0.8, m) * ridge * 0.4));
+      }
     },
   },
   // Maple: smoother grey-brown bark, long shallow fissures between flat strips, soft mottling.
   maple: {
     relief: 0.9,
     paint(W, H, height, out) {
-      const warp = field(W, H, 3, 1, 2, 21), strips = field(W, H, 11, 2, 2, 22), mottle = field(W, H, 5, 8, 3, 23), fine = field(W, H, 32, 32, 1, 24);
+      const warp = field(W, H, 3, 1, 2, 21), bands = field(W, H, 11, 2, 2, 22), mottle = field(W, H, 5, 8, 3, 23), fine = field(W, H, 32, 32, 1, 24);
       const dark: RGB = [88, 80, 70], light: RGB = [140, 131, 118], fissured: RGB = [50, 43, 36];
       const p = new Paint();
       for (let y = 0, i = 0; y < H; y++)
         for (let x = 0; x < W; x++, i++) {
-          const f = across(strips, W, i, x, (warp[i] - 0.5) * W * 0.15);
+          const f = across(bands, W, i, x, (warp[i] - 0.5) * W * 0.15);
           const fissure = 1 - smooth(0.02, 0.13, Math.abs(f * 2 - 1));
           const m = mottle[i];
           height[i] = 0.75 + m * 0.15 + fine[i] * 0.1 - fissure * 0.5;
@@ -185,23 +207,32 @@ const BARK: Record<TreeSpecies, { paint: BarkPainter; relief: number }> = {
       }
     },
   },
-  // Scots pine: irregular reddish plates split by deep dark fissures, flaking in thin layers.
+  // Scots pine: deep wandering vertical fissures, the strips between them broken crosswise into
+  // layered, flaking plates, grey-brown low down with rust where the outer layers have peeled.
   pine: {
-    relief: 1.4,
+    relief: 1.3,
     paint(W, H, height, out) {
-      const warp = field(W, H, 4, 4, 2, 42), tone = field(W, H, 8, 12, 3, 44);
-      const plates = voronoi(W, H, 8, 5, 41, warp), flakes = field(W, H, 16, 12, 2, 43);
-      const rust: RGB = [132, 74, 48], orange: RGB = [176, 112, 76], grey: RGB = [128, 116, 104], flaking: RGB = [92, 58, 42], fissured: RGB = [34, 23, 18];
+      const k = W / 256;
+      const { dx, dy, own } = strips(W, H, 8, 6, 2.4, 42);
+      const tone = field(W, H, 8, 12, 3, 44), width = field(W, H, 4, 9, 2, 46);
+      const strata = field(W, H, 6, 90, 1, 47), flakes = field(W, H, 10, 20, 2, 48);
+      const greyBrown: RGB = [100, 80, 66], rust: RGB = [134, 78, 52], orange: RGB = [168, 100, 62], ash: RGB = [128, 118, 108];
+      const fissured: RGB = [26, 18, 14];
       const p = new Paint();
       for (let i = 0; i < W * H; i++) {
-        const t = tone[i];
-        // Fissure width wanders, so plates don't read as cobbles.
-        const fissure = 1 - smooth(0.02 + t * 0.08, 0.16 + t * 0.1, plates.gap[i]);
-        const own = hash(plates.id[i], 7, 45);
-        const flakeEdge = 1 - smooth(0.0, 0.08, Math.abs(flakes[i] * 2 - 1));
-        height[i] = (1 - fissure) * (0.75 + 0.15 * own + 0.1 * t) - flakeEdge * 0.12;
-        p.lerp(rust, orange, t * 0.7 + own * 0.3).mix(grey, smooth(0.62, 0.85, own) * 0.55);
-        out(i, p.mix(flaking, flakeEdge * 0.5).mix(fissured, fissure));
+        const o = own[i], t = tone[i];
+        // Fissure width wanders along each crack; some plates run on unbroken into the next.
+        const wv = (2 + 8 * width[i] * width[i]) * k, wh = (0.8 + 2.6 * o) * k;
+        const crossing = o < 0.6 ? 1 - smooth(wh * 0.3, wh, dy[i]) : 0;
+        const fissure = Math.max(1 - smooth(wv * 0.3, wv, dx[i]), crossing);
+        // Plates round off into the cracks and are layered: thin strata, and fresh flakes where a layer peeled.
+        const rim = smooth(0, 5 * k, Math.min(dx[i], dy[i]));
+        const layer = smooth(0.45, 0.6, strata[i]) * 0.5;
+        const peel = smooth(0.7, 0.78, flakes[i] * 0.7 + o * 0.3) * (1 - fissure);
+        height[i] = (1 - fissure) * (0.55 + 0.25 * rim + 0.1 * o - layer * 0.1 + peel * 0.06) + 0.04 * t;
+        p.lerp(greyBrown, rust, o * 0.7 + t * 0.5 - 0.25).mix(ash, smooth(0.55, 0.85, t) * 0.4 * (1 - o));
+        p.mix(fissured, layer * 0.2 + (1 - rim) * 0.3).mix(orange, peel * 0.6);
+        out(i, p.mix(fissured, Math.pow(fissure, 0.7)));
       }
     },
   },
