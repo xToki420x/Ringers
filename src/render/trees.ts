@@ -119,9 +119,11 @@ function leafMaterial(q: Quality): THREE.MeshStandardMaterial {
         '#include <lights_fragment_end>',
         `#include <lights_fragment_end>
         {
-          // Occlusion baked in the vertex colour also shades reflections deep in the crown.
+          // The crown-shaped normals would give every spray on the crown's rim a grazing,
+          // sky-white sheen; leaves only glint a little, less still deep in the crown.
           float occ = clamp( dot( vColor.rgb, vec3( 0.3333 ) ), 0.0, 1.0 );
-          reflectedLight.indirectSpecular *= occ;
+          reflectedLight.directSpecular *= 0.2;
+          reflectedLight.indirectSpecular *= 0.35 * occ;
           #if NUM_DIR_LIGHTS > 0
             // Sunlight through the leaves: strongest looking toward the sun, softer on the shaded side.
             vec3 L = directionalLights[ 0 ].direction;

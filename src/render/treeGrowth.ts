@@ -498,7 +498,7 @@ function pine(g: Grower, variant: number, q: Quality): TreeSkeleton {
       phase: g.range(0, Math.PI * 2),
     });
   }
-  const spacing = q === 'high' ? 0.58 : q === 'medium' ? 0.8 : 0.95;
+  const spacing = q === 'high' ? 0.62 : q === 'medium' ? 0.8 : 0.95;
   const perWhorl = q === 'low' ? 4 : 5;
   let whorlRoll = g.range(0, Math.PI * 2);
   for (let y = base; y < height - 0.45; y += spacing * g.range(0.85, 1.15)) {
@@ -525,9 +525,10 @@ function pine(g: Grower, variant: number, q: Quality): TreeSkeleton {
         phase: g.range(0, Math.PI * 2),
       });
       const size = ((1.05 + 0.3 * (1 - h)) * g.range(0.9, 1.1)) / Math.sqrt(0.6 + 0.4 * k);
-      const n = Math.max(1, Math.round((length / 0.62) * (0.6 + 0.4 * k)));
+      // Needle clusters from near the trunk (hiding it inside the cone) out past the branch tip.
+      const n = 1 + Math.max(1, Math.round((length / 0.62) * (0.6 + 0.4 * k)));
       for (let m = 0; m < n; m++) {
-        const t = 0.32 + (0.68 * (m + 1)) / n;
+        const t = 0.1 + (0.9 * m) / n;
         const a = along(branch, t);
         g.clusters.push({ p: a.p, dir: a.dir, size: size * (0.8 + 0.2 * t), bend: a.bend, phase: branch.phase });
       }

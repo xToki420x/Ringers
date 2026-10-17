@@ -107,7 +107,7 @@ function occlusion(c: CrownShape, p: THREE.Vector3, deep: number): number {
 /** Radial segments by limb thickness and quality tier. */
 function radialSegments(r: number, q: Quality): number {
   const tiers = q === 'high' ? [12, 8, 5, 3] : q === 'medium' ? [9, 6, 4, 3] : [7, 5, 3, 3];
-  return r >= 0.2 ? tiers[0] : r >= 0.07 ? tiers[1] : r >= (q === 'high' ? 0.035 : 0.05) ? tiers[2] : tiers[3];
+  return r >= 0.2 ? tiers[0] : r >= 0.07 ? tiers[1] : r >= 0.045 ? tiers[2] : tiers[3];
 }
 
 /** Arc-length positions of the rings along a branch. */
@@ -157,7 +157,7 @@ function barkTint(species: TreeSpecies, b: Branch, p: THREE.Vector3, height: num
       // Dark, rough bark at the foot of each stem.
       return out.setRGB(1, 1, 1).lerp(new THREE.Color(0.3, 0.27, 0.25), 1 - smooth(0.05, 0.9, p.y));
     case 'pine':
-      if (b.level > 0) return out.setRGB(0.95, 0.85, 0.78);
+      if (b.level > 0) return out.setRGB(0.6, 0.52, 0.48);
       return out.setRGB(0.82, 0.8, 0.8).lerp(new THREE.Color(1.3, 1.02, 0.8), smooth(height * 0.35, height * 0.75, p.y));
     default:
       return out.setRGB(1, 1, 1);

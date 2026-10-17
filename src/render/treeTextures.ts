@@ -63,27 +63,31 @@ function voronoi(W: number, H: number, nx: number, ny: number, seed: number, war
     jx[i] = 0.12 + 0.76 * hash(i % nx, Math.floor(i / nx), seed);
     jy[i] = 0.12 + 0.76 * hash(i % nx, Math.floor(i / nx), seed + 1);
   }
+  // Wrapped neighbour cell indices, so the inner loop needs no modulo.
+  const wrap = (n: number) => Int32Array.from({ length: n + 4 }, (_, k) => (k - 2 + n) % n);
+  const wx = wrap(nx), wy = wrap(ny);
   const gap = new Float32Array(W * H), id = new Int32Array(W * H);
-  for (let py = 0; py < H; py++)
-    for (let px = 0; px < W; px++) {
-      const w = warp ? warp[py * W + px] - 0.5 : 0;
+  for (let py = 0, t = 0; py < H; py++)
+    for (let px = 0; px < W; px++, t++) {
+      const w = warp ? warp[t] - 0.5 : 0;
       const x = (px / W + w * 0.08) * nx, y = (py / H + w * 0.05) * ny;
       const xi = Math.floor(x), yi = Math.floor(y);
-      let f1 = 9, f2 = 9, best = 0;
-      for (let j = -1; j <= 1; j++)
+      let d1 = 99, d2 = 99, best = 0;
+      for (let j = -1; j <= 1; j++) {
+        const row = wy[yi + j + 2] * nx;
         for (let i = -1; i <= 1; i++) {
-          const cx = xi + i, cy = yi + j;
-          const k = (((cy % ny) + ny) % ny) * nx + (((cx % nx) + nx) % nx);
-          const dx = cx + jx[k] - x, dy = cy + jy[k] - y;
-          const d = Math.sqrt(dx * dx + dy * dy);
-          if (d < f1) {
-            f2 = f1;
-            f1 = d;
+          const k = row + wx[xi + i + 2];
+          const dx = xi + i + jx[k] - x, dy = yi + j + jy[k] - y;
+          const d = dx * dx + dy * dy;
+          if (d < d1) {
+            d2 = d1;
+            d1 = d;
             best = k;
-          } else if (d < f2) f2 = d;
+          } else if (d < d2) d2 = d;
         }
-      gap[py * W + px] = f2 - f1;
-      id[py * W + px] = best;
+      }
+      gap[t] = Math.sqrt(d2) - Math.sqrt(d1);
+      id[t] = best;
     }
   return { gap, id };
 }
@@ -130,7 +134,7 @@ const BARK: Record<TreeSpecies, { paint: BarkPainter; relief: number }> = {
       const warp = field(W, H, 4, 2, 2, 11), mottle = field(W, H, 4, 6, 3, 15), grain = field(W, H, 32, 4, 2, 14);
       const { gap } = voronoi(W, H, 12, 4, 12, warp);
       const cracks = field(W, H, 9, 26, 1, 13);
-      const furrow: RGB = [26, 21, 17], ridgeTop: RGB = [98, 90, 80], weathered: RGB = [62, 53, 45], lichen: RGB = [122, 128, 102];
+      const furrow: RGB = [38, 31, 25], ridgeTop: RGB = [126, 114, 98], weathered: RGB = [92, 78, 64], lichen: RGB = [136, 140, 112];
       const p = new Paint();
       for (let y = 0, i = 0; y < H; y++)
         for (let x = 0; x < W; x++, i++) {
@@ -186,14 +190,15 @@ const BARK: Record<TreeSpecies, { paint: BarkPainter; relief: number }> = {
     relief: 1.4,
     paint(W, H, height, out) {
       const warp = field(W, H, 4, 4, 2, 42), tone = field(W, H, 8, 12, 3, 44);
-      const plates = voronoi(W, H, 6, 7, 41, warp), flakes = voronoi(W, H, 18, 22, 43);
+      const plates = voronoi(W, H, 8, 5, 41, warp), flakes = field(W, H, 16, 12, 2, 43);
       const rust: RGB = [132, 74, 48], orange: RGB = [176, 112, 76], grey: RGB = [128, 116, 104], flaking: RGB = [92, 58, 42], fissured: RGB = [34, 23, 18];
       const p = new Paint();
       for (let i = 0; i < W * H; i++) {
-        const fissure = 1 - smooth(0.03, 0.18, plates.gap[i]);
-        const own = hash(plates.id[i], 7, 45);
-        const flakeEdge = 1 - smooth(0.0, 0.06, flakes.gap[i]);
         const t = tone[i];
+        // Fissure width wanders, so plates don't read as cobbles.
+        const fissure = 1 - smooth(0.02 + t * 0.08, 0.16 + t * 0.1, plates.gap[i]);
+        const own = hash(plates.id[i], 7, 45);
+        const flakeEdge = 1 - smooth(0.0, 0.08, Math.abs(flakes[i] * 2 - 1));
         height[i] = (1 - fissure) * (0.75 + 0.15 * own + 0.1 * t) - flakeEdge * 0.12;
         p.lerp(rust, orange, t * 0.7 + own * 0.3).mix(grey, smooth(0.62, 0.85, own) * 0.55);
         out(i, p.mix(flaking, flakeEdge * 0.5).mix(fissured, fissure));
