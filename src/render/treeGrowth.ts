@@ -174,7 +174,7 @@ class Grower {
     return b;
   }
 
-  /** A spray at arc fraction `t` of a twig, aimed out of the crown. */
+  /** A spray at arc fraction `t` of a twig or branch, aimed out of the crown. */
   spray(b: Branch, t: number, size: number, centre: THREE.Vector3, outward: number, lift: number) {
     const at = along(b, t);
     const out = at.p.clone().sub(centre);
@@ -430,7 +430,7 @@ function birch(g: Grower, variant: number, q: Quality): TreeSkeleton {
         flex: 0.75,
         phase: g.range(0, Math.PI * 2),
       });
-      const nTwig = q === 'low' ? 0 : Math.max(2, Math.round(3 * k + 0.4));
+      const nTwig = q === 'low' ? 0 : Math.max(2, Math.round(4 * k + 0.2));
       for (let m = 0; m < nTwig; m++) {
         const tt = 0.4 + (0.6 * (m + g.rnd() * 0.6)) / nTwig;
         const at2 = along(branch, tt);
@@ -449,7 +449,7 @@ function birch(g: Grower, variant: number, q: Quality): TreeSkeleton {
           flex: 0.35,
           phase: branch.phase,
         });
-        for (let n = 0; n < 3; n++) g.spray(twig, 0.35 + n * 0.32, g.range(0.75, 1.0) / Math.sqrt(0.55 + 0.45 * k), centre, 0.3, -0.25);
+        for (let n = 0; n < 4; n++) g.spray(twig, 0.3 + n * 0.23, g.range(0.75, 1.0) / Math.sqrt(0.55 + 0.45 * k), centre, 0.3, -0.25);
       }
       if (q === 'low') for (let n = 0; n < 4; n++) g.spray(branch, 0.35 + n * 0.21, g.range(1.1, 1.4), centre, 0.35, -0.2);
       else g.spray(branch, 1, g.range(0.75, 0.95), centre, 0.3, -0.1);

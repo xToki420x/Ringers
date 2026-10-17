@@ -172,13 +172,14 @@ export class Forest {
     const shadows = new THREE.InstancedMesh(
       memo('shadow-geo', () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)),
       memo(
-        'shadow-mat',
+        `shadow-mat:${q}`,
         () =>
           new THREE.MeshBasicMaterial({
             color: 0x0b1206,
-            alphaMap: contactShadow(),
+            alphaMap: memo('shadow-tex', contactShadow),
             transparent: true,
-            opacity: 0.55,
+            // Low quality blends straight into the sRGB canvas, where the same alpha reads darker.
+            opacity: q === 'low' ? 0.38 : 0.55,
             depthWrite: false,
             polygonOffset: true,
             polygonOffsetFactor: -2,
