@@ -119,7 +119,8 @@ function stations(b: Branch, lengths: number[], q: Quality): number[] {
     // A ring at each end is plenty for a twig.
     s.push(0, total);
   } else {
-    const split = r0 >= (q === 'high' ? 0.15 : 0.2) && q !== 'low' ? 2 : 1;
+    // Trunks get a ring between every node; limbs are smooth enough without.
+    const split = r0 >= 0.2 && q === 'high' ? 2 : 1;
     for (let i = 0; i < lengths.length - 1; i++)
       for (let k = 0; k < split; k++) s.push(lengths[i] + ((lengths[i + 1] - lengths[i]) * k) / split);
     s.push(total);
@@ -240,20 +241,30 @@ function addBranch(m: MeshData, b: Branch, sk: TreeSkeleton, q: Quality) {
 /** Card fold (radians either side of the spray's spine) by species. */
 const FOLD: Record<TreeSpecies, number> = { oak: 0.5, maple: 0.45, birch: 0.4, pine: 0.3 };
 
+/**
+ * One leaf spray: a card folded along its twig (so it keeps some width seen
+ * from any side), facing up to the light or out of the crown. Pine shoots
+ * are bottle-brushes, so they get a second card crossed at right angles.
+ */
 function addSpray(m: MeshData, c: LeafCluster, sk: TreeSkeleton, rnd: () => number) {
   const out = crownNormal(sk.crown, c.p, new THREE.Vector3());
-  const dir = c.dir;
   const jitter = new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5);
-  // Which way the spray's face looks: up to the light for flat pine pads, out of the crown for leaves.
   const face =
     sk.species === 'pine'
       ? UP.clone().addScaledVector(jitter, 0.4)
       : sk.species === 'birch'
         ? out.clone().multiplyScalar(0.8).addScaledVector(UP, 0.4).addScaledVector(jitter, 0.9)
         : out.clone().multiplyScalar(0.7).addScaledVector(UP, 0.7).addScaledVector(jitter, 0.8);
-  face.addScaledVector(dir, -face.dot(dir));
-  if (face.lengthSq() < 1e-4) face.copy(perpendicular(dir));
+  face.addScaledVector(c.dir, -face.dot(c.dir));
+  if (face.lengthSq() < 1e-4) face.copy(perpendicular(c.dir));
   face.normalize();
+  addCard(m, c, sk, out, face, rnd);
+  if (sk.species === 'pine') addCard(m, c, sk, out, new THREE.Vector3().crossVectors(c.dir, face).normalize(), rnd);
+}
+
+/** A card along the spray's direction, folded toward `face` (unit, perpendicular to the direction). */
+function addCard(m: MeshData, c: LeafCluster, sk: TreeSkeleton, out: THREE.Vector3, face: THREE.Vector3, rnd: () => number) {
+  const dir = c.dir;
   const across = new THREE.Vector3().crossVectors(dir, face).normalize();
   const fold = FOLD[sk.species];
   const s = c.size;
@@ -276,6 +287,7 @@ function addSpray(m: MeshData, c: LeafCluster, sk: TreeSkeleton, rnd: () => numb
     return nrm.dot(out) < 0 ? nrm.negate() : nrm;
   };
   const nLeft = panel(left), nRight = panel(right);
+  const nMid = nLeft.clone().add(nRight).normalize();
   const p = new THREE.Vector3(), n = new THREE.Vector3(), cn = new THREE.Vector3(), colour = new THREE.Color();
   const corner = (along: number, edge: THREE.Vector3 | null, panelN: THREE.Vector3, u: number) => {
     p.copy(along ? tip : base);
@@ -290,10 +302,10 @@ function addSpray(m: MeshData, c: LeafCluster, sk: TreeSkeleton, rnd: () => numb
   const i = m.count;
   const uMid = (u0 + u1) / 2;
   corner(0, left, nLeft, u0);
-  corner(0, null, nLeft.clone().add(nRight).normalize(), uMid);
+  corner(0, null, nMid, uMid);
   corner(0, right, nRight, u1);
   corner(1, left, nLeft, u0);
-  corner(1, null, nLeft.clone().add(nRight).normalize(), uMid);
+  corner(1, null, nMid, uMid);
   corner(1, right, nRight, u1);
   m.idx.push(i, i + 1, i + 4, i, i + 4, i + 3, i + 1, i + 2, i + 5, i + 1, i + 5, i + 4);
 }

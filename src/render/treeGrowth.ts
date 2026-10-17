@@ -247,7 +247,7 @@ const OAK: BroadleafSpec = {
   twigs: 4,
   twigLength: [0.7, 1.15],
   sprays: 3,
-  spraySize: [1.2, 1.55],
+  spraySize: [1.5, 1.9],
 };
 
 /** Maple: taller trunk, more upright limbs, a dense rounded crown. */
@@ -268,7 +268,7 @@ const MAPLE: BroadleafSpec = {
   twigs: 4,
   twigLength: [0.6, 1.0],
   sprays: 3,
-  spraySize: [1.1, 1.4],
+  spraySize: [1.4, 1.75],
 };
 
 function broadleaf(g: Grower, s: BroadleafSpec, species: TreeSpecies, variant: number, q: Quality): TreeSkeleton {
@@ -347,6 +347,8 @@ function broadleaf(g: Grower, s: BroadleafSpec, species: TreeSpecies, variant: n
         for (let m = 0; m < 3; m++) g.spray(branch, 0.45 + m * 0.27, g.range(...s.spraySize) * 1.35, centre, 0.6, 0.25);
         continue;
       }
+      // One spray on the branch itself shades the crown's interior.
+      g.spray(branch, 0.6, g.range(...s.spraySize) * 0.9, centre, 0.4, 0.2);
       const nTwig = Math.max(2, Math.round(s.twigs * k));
       for (let m = 0; m < nTwig; m++) {
         const tt = 0.35 + (0.65 * (m + g.rnd() * 0.7)) / nTwig;
@@ -447,10 +449,10 @@ function birch(g: Grower, variant: number, q: Quality): TreeSkeleton {
           flex: 0.35,
           phase: branch.phase,
         });
-        for (let n = 0; n < 3; n++) g.spray(twig, 0.35 + n * 0.32, g.range(0.62, 0.85) / Math.sqrt(0.55 + 0.45 * k), centre, 0.3, -0.25);
+        for (let n = 0; n < 3; n++) g.spray(twig, 0.35 + n * 0.32, g.range(0.75, 1.0) / Math.sqrt(0.55 + 0.45 * k), centre, 0.3, -0.25);
       }
-      if (q === 'low') for (let n = 0; n < 4; n++) g.spray(branch, 0.35 + n * 0.21, g.range(0.95, 1.25), centre, 0.35, -0.2);
-      else g.spray(branch, 1, g.range(0.6, 0.8), centre, 0.3, -0.1);
+      if (q === 'low') for (let n = 0; n < 4; n++) g.spray(branch, 0.35 + n * 0.21, g.range(1.1, 1.4), centre, 0.35, -0.2);
+      else g.spray(branch, 1, g.range(0.75, 0.95), centre, 0.3, -0.1);
     }
   }
   return finish(g, 'birch', { kind: 'ellipsoid', centre, radii });
@@ -496,7 +498,7 @@ function pine(g: Grower, variant: number, q: Quality): TreeSkeleton {
       phase: g.range(0, Math.PI * 2),
     });
   }
-  const spacing = q === 'high' ? 0.58 : q === 'medium' ? 0.72 : 0.92;
+  const spacing = q === 'high' ? 0.58 : q === 'medium' ? 0.8 : 0.95;
   const perWhorl = q === 'low' ? 4 : 5;
   let whorlRoll = g.range(0, Math.PI * 2);
   for (let y = base; y < height - 0.45; y += spacing * g.range(0.85, 1.15)) {
@@ -522,7 +524,7 @@ function pine(g: Grower, variant: number, q: Quality): TreeSkeleton {
         flex: 0.45 + 0.3 * (1 - h),
         phase: g.range(0, Math.PI * 2),
       });
-      const size = (0.82 + 0.25 * (1 - h)) * g.range(0.9, 1.1) / Math.sqrt(0.6 + 0.4 * k);
+      const size = ((1.05 + 0.3 * (1 - h)) * g.range(0.9, 1.1)) / Math.sqrt(0.6 + 0.4 * k);
       const n = Math.max(1, Math.round((length / 0.62) * (0.6 + 0.4 * k)));
       for (let m = 0; m < n; m++) {
         const t = 0.32 + (0.68 * (m + 1)) / n;

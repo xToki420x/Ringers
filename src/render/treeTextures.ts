@@ -17,28 +17,79 @@ export interface BarkMaps {
   relief: number;
 }
 
-/** Value noise that repeats every `px` cells across and `py` cells down. */
-function pnoise(x: number, y: number, px: number, py: number, seed: number): number {
-  const xi = Math.floor(x), yi = Math.floor(y);
-  const xf = x - xi, yf = y - yi;
-  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
-  const x0 = ((xi % px) + px) % px, y0 = ((yi % py) + py) % py;
-  const x1 = (x0 + 1) % px, y1 = (y0 + 1) % py;
-  const a = hash(x0, y0, seed), b = hash(x1, y0, seed), c = hash(x0, y1, seed), d = hash(x1, y1, seed);
-  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
-}
-
-/** Fractal sum of `pnoise`, still periodic over the unit square at base frequency (fx, fy). */
-function pfbm(u: number, v: number, fx: number, fy: number, octaves: number, seed: number): number {
-  let amp = 1, sum = 0, norm = 0, k = 1;
+/**
+ * Periodic fractal value noise (0..1) over a W×H texture, starting with
+ * `fx` × `fy` lattice cells and doubling per octave. Computed a whole grid at
+ * a time (lattice lookups and weights per row and column), which is far
+ * cheaper than evaluating noise texel by texel.
+ */
+function field(W: number, H: number, fx: number, fy: number, octaves: number, seed: number): Float32Array {
+  const out = new Float32Array(W * H);
+  const lattice = new Float32Array((fx << (octaves - 1)) * (fy << (octaves - 1)));
+  const axis = (n: number, cells: number) => {
+    const i0 = new Int32Array(n), i1 = new Int32Array(n), s = new Float32Array(n);
+    for (let k = 0; k < n; k++) {
+      const p = (k / n) * cells, i = Math.floor(p), f = p - i;
+      i0[k] = i % cells;
+      i1[k] = (i + 1) % cells;
+      s[k] = f * f * (3 - 2 * f);
+    }
+    return { i0, i1, s };
+  };
+  let amp = 1, norm = 0;
   for (let o = 0; o < octaves; o++) {
-    sum += amp * pnoise(u * fx * k, v * fy * k, fx * k, fy * k, seed + o * 17);
+    const cx = fx << o, cy = fy << o;
+    for (let y = 0; y < cy; y++) for (let x = 0; x < cx; x++) lattice[y * cx + x] = hash(x, y, seed + o * 17);
+    const X = axis(W, cx), Y = axis(H, cy);
+    for (let y = 0; y < H; y++) {
+      const r0 = Y.i0[y] * cx, r1 = Y.i1[y] * cx, sy = Y.s[y];
+      for (let x = 0; x < W; x++) {
+        const x0 = X.i0[x], x1 = X.i1[x], sx = X.s[x];
+        const a = lattice[r0 + x0], b = lattice[r0 + x1], c = lattice[r1 + x0], d = lattice[r1 + x1];
+        out[y * W + x] += amp * (a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy);
+      }
+    }
     norm += amp;
     amp *= 0.5;
-    k *= 2;
   }
-  return sum / norm;
+  for (let i = 0; i < out.length; i++) out[i] /= norm;
+  return out;
 }
+
+/** Periodic Voronoi over a W×H texture: per texel, the gap between the two nearest jittered centres and the nearest cell's id. */
+function voronoi(W: number, H: number, nx: number, ny: number, seed: number, warp?: Float32Array) {
+  const jx = new Float32Array(nx * ny), jy = new Float32Array(nx * ny);
+  for (let i = 0; i < nx * ny; i++) {
+    jx[i] = 0.12 + 0.76 * hash(i % nx, Math.floor(i / nx), seed);
+    jy[i] = 0.12 + 0.76 * hash(i % nx, Math.floor(i / nx), seed + 1);
+  }
+  const gap = new Float32Array(W * H), id = new Int32Array(W * H);
+  for (let py = 0; py < H; py++)
+    for (let px = 0; px < W; px++) {
+      const w = warp ? warp[py * W + px] - 0.5 : 0;
+      const x = (px / W + w * 0.08) * nx, y = (py / H + w * 0.05) * ny;
+      const xi = Math.floor(x), yi = Math.floor(y);
+      let f1 = 9, f2 = 9, best = 0;
+      for (let j = -1; j <= 1; j++)
+        for (let i = -1; i <= 1; i++) {
+          const cx = xi + i, cy = yi + j;
+          const k = (((cy % ny) + ny) % ny) * nx + (((cx % nx) + nx) % nx);
+          const dx = cx + jx[k] - x, dy = cy + jy[k] - y;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < f1) {
+            f2 = f1;
+            f1 = d;
+            best = k;
+          } else if (d < f2) f2 = d;
+        }
+      gap[py * W + px] = f2 - f1;
+      id[py * W + px] = best;
+    }
+  return { gap, id };
+}
+
+/** `f` sampled `dx` texels across (wrapping), for warping ridges sideways. */
+const across = (f: Float32Array, W: number, i: number, x: number, dx: number) => f[i - x + ((((x + Math.round(dx)) % W) + W) % W)];
 
 const smooth = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -46,91 +97,107 @@ const smooth = (a: number, b: number, x: number) => {
 };
 
 type RGB = [number, number, number];
-const lerp3 = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
-/** Distance to the nearest and second-nearest jittered cell centre (periodic Voronoi). */
-function cells(u: number, v: number, nx: number, ny: number, seed: number): [number, number] {
-  const x = u * nx, y = v * ny;
-  const xi = Math.floor(x), yi = Math.floor(y);
-  let f1 = 9, f2 = 9;
-  for (let j = -1; j <= 1; j++)
-    for (let i = -1; i <= 1; i++) {
-      const cx = xi + i, cy = yi + j;
-      const wx = ((cx % nx) + nx) % nx, wy = ((cy % ny) + ny) % ny;
-      const dx = cx + 0.15 + 0.7 * hash(wx, wy, seed) - x;
-      const dy = cy + 0.15 + 0.7 * hash(wx, wy, seed + 1) - y;
-      const d = Math.sqrt(dx * dx + dy * dy * 0.45);
-      if (d < f1) {
-        f2 = f1;
-        f1 = d;
-      } else if (d < f2) f2 = d;
-    }
-  return [f1, f2];
+/** Scratch colour mixing (no allocation per texel). */
+class Paint {
+  r = 0;
+  g = 0;
+  b = 0;
+  set(c: RGB) {
+    [this.r, this.g, this.b] = c;
+    return this;
+  }
+  mix(c: RGB, t: number) {
+    const k = Math.min(1, Math.max(0, t));
+    this.r += (c[0] - this.r) * k;
+    this.g += (c[1] - this.g) * k;
+    this.b += (c[2] - this.b) * k;
+    return this;
+  }
+  lerp(a: RGB, b: RGB, t: number) {
+    return this.set(a).mix(b, t);
+  }
 }
 
-/** One bark texel: relief height (0 deep … 1 proud) and albedo. */
-type BarkTexel = (u: number, v: number) => { h: number; c: RGB };
+/** Fills relief height (0 deep … 1 proud) and colour for every texel; U runs around the limb, V along it. */
+type BarkPainter = (W: number, H: number, height: Float32Array, paint: (i: number, p: Paint) => void) => void;
 
-const BARK: Record<TreeSpecies, { texel: BarkTexel; relief: number }> = {
-  // Thick, deeply furrowed oak bark: an interlaced net of vertical ridges, grey lichen on the plates.
+const BARK: Record<TreeSpecies, { paint: BarkPainter; relief: number }> = {
+  // Thick, deeply furrowed oak bark: tall interlaced ridges broken by cross cracks, lichen on the ridges.
   oak: {
-    relief: 1.4,
-    texel(u, v) {
-      const warp = pfbm(u, v, 3, 2, 3, 11);
-      const f = pfbm(u + warp * 0.18, v, 9, 3, 3, 12);
-      const ridge = smooth(0.04, 0.32, Math.abs(f * 2 - 1));
-      const crack = smooth(0.66, 0.8, pnoise(u * 12, v * 20, 12, 20, 13)) * ridge;
-      const grain = pfbm(u, v, 24, 24, 2, 14);
-      const h = ridge * (0.75 + 0.25 * grain) - crack * 0.45;
-      let c = lerp3([34, 27, 21], [104, 93, 80], h);
-      c = lerp3(c, [72, 62, 52], (grain - 0.5) * 0.6 + 0.2);
-      const lichen = smooth(0.58, 0.75, pfbm(u, v, 4, 6, 3, 15)) * ridge;
-      return { h, c: lerp3(c, [128, 134, 108], lichen * 0.55) };
+    relief: 1.6,
+    paint(W, H, height, out) {
+      const warp = field(W, H, 4, 2, 2, 11), mottle = field(W, H, 4, 6, 3, 15), grain = field(W, H, 32, 4, 2, 14);
+      const { gap } = voronoi(W, H, 12, 4, 12, warp);
+      const cracks = field(W, H, 9, 26, 1, 13);
+      const furrow: RGB = [26, 21, 17], ridgeTop: RGB = [98, 90, 80], weathered: RGB = [62, 53, 45], lichen: RGB = [122, 128, 102];
+      const p = new Paint();
+      for (let y = 0, i = 0; y < H; y++)
+        for (let x = 0; x < W; x++, i++) {
+          // Furrows wander in width; ridges stay narrow and rough.
+          const n = grain[i] * 0.12;
+          const ridge = smooth(0.08 + n, 0.3 + n, gap[i]);
+          const crack = smooth(0.64, 0.74, cracks[i]) * ridge;
+          const g = grain[i], m = mottle[i];
+          const h = ridge * (0.75 + 0.25 * g) - crack * 0.5;
+          height[i] = h;
+          p.lerp(furrow, ridgeTop, h).mix(weathered, (1 - m) * 0.5);
+          out(i, p.mix(lichen, smooth(0.66, 0.8, m) * ridge * 0.4));
+        }
     },
   },
-  // Maple: smoother grey-brown bark with long shallow fissures and soft mottling.
+  // Maple: smoother grey-brown bark, long shallow fissures between flat strips, soft mottling.
   maple: {
     relief: 0.9,
-    texel(u, v) {
-      const warp = pfbm(u, v, 3, 2, 2, 21);
-      const f = pfbm(u + warp * 0.12, v, 7, 2, 3, 22);
-      const fissure = 1 - smooth(0.0, 0.12, Math.abs(f * 2 - 1));
-      const mottle = pfbm(u, v, 5, 8, 4, 23);
-      const fine = pfbm(u, v, 32, 32, 2, 24);
-      const h = 0.75 + mottle * 0.15 + fine * 0.1 - fissure * 0.55;
-      let c = lerp3([86, 78, 68], [138, 128, 114], mottle * 1.2 - 0.1);
-      c = lerp3(c, [52, 44, 37], fissure * 0.85);
-      return { h, c };
+    paint(W, H, height, out) {
+      const warp = field(W, H, 3, 1, 2, 21), strips = field(W, H, 11, 2, 2, 22), mottle = field(W, H, 5, 8, 3, 23), fine = field(W, H, 32, 32, 1, 24);
+      const dark: RGB = [88, 80, 70], light: RGB = [140, 131, 118], fissured: RGB = [50, 43, 36];
+      const p = new Paint();
+      for (let y = 0, i = 0; y < H; y++)
+        for (let x = 0; x < W; x++, i++) {
+          const f = across(strips, W, i, x, (warp[i] - 0.5) * W * 0.15);
+          const fissure = 1 - smooth(0.02, 0.13, Math.abs(f * 2 - 1));
+          const m = mottle[i];
+          height[i] = 0.75 + m * 0.15 + fine[i] * 0.1 - fissure * 0.5;
+          out(i, p.lerp(dark, light, m * 1.2 - 0.1).mix(fissured, fissure * 0.8));
+        }
     },
   },
-  // Paper birch: chalky white with horizontal lenticels, black scars and the odd peeling curl.
+  // Paper birch: chalky white with horizontal lenticels, black lens-shaped scars and the odd peeling curl.
   birch: {
     relief: 0.55,
-    texel(u, v) {
-      const mottle = pfbm(u, v, 4, 6, 3, 31);
-      const len = pnoise(u * 5, v * 56, 5, 56, 32);
-      const lenticel = smooth(0.74, 0.86, len) * smooth(0.3, 0.6, pnoise(u * 16, v * 56, 16, 56, 33));
-      const scar = smooth(0.62, 0.7, pfbm(u, v, 3, 7, 4, 34));
-      const peel = smooth(0.68, 0.78, pfbm(u, v, 6, 10, 3, 35)) * (1 - scar);
-      const h = 0.7 + mottle * 0.2 - lenticel * 0.35 - scar * 0.25 + peel * 0.2;
-      let c = lerp3([206, 202, 192], [236, 233, 225], mottle);
-      c = lerp3(c, [214, 172, 138], peel * 0.6);
-      c = lerp3(c, [70, 64, 58], lenticel);
-      return { h, c: lerp3(c, [28, 26, 25], scar * 0.92) };
+    paint(W, H, height, out) {
+      const mottle = field(W, H, 4, 6, 3, 31), lens = field(W, H, 5, 56, 1, 32), breaks = field(W, H, 16, 56, 1, 33);
+      const scars = field(W, H, 2, 10, 3, 34), peeling = field(W, H, 6, 10, 3, 35);
+      const chalk: RGB = [204, 200, 190], white: RGB = [236, 233, 225], peeled: RGB = [214, 172, 138], pore: RGB = [70, 64, 58], scarred: RGB = [28, 26, 25];
+      const p = new Paint();
+      for (let i = 0; i < W * H; i++) {
+        const m = mottle[i];
+        const lenticel = smooth(0.72, 0.84, lens[i]) * smooth(0.3, 0.6, breaks[i]);
+        const scar = smooth(0.64, 0.72, scars[i]);
+        const peel = smooth(0.68, 0.78, peeling[i]) * (1 - scar);
+        height[i] = 0.7 + m * 0.2 - lenticel * 0.35 - scar * 0.25 + peel * 0.2;
+        out(i, p.lerp(chalk, white, m).mix(peeled, peel * 0.6).mix(pore, lenticel).mix(scarred, scar * 0.92));
+      }
     },
   },
-  // Scots pine: reddish plates split by dark fissures, flaking grey at their edges.
+  // Scots pine: irregular reddish plates split by deep dark fissures, flaking in thin layers.
   pine: {
-    relief: 1.25,
-    texel(u, v) {
-      const [f1, f2] = cells(u, v, 7, 9, 41);
-      const edge = f2 - f1;
-      const plate = smooth(0.02, 0.16, edge);
-      const flake = pfbm(u, v, 10, 14, 3, 42);
-      const h = plate * (0.7 + 0.3 * flake) + (f1 < 0.18 ? 0.05 : 0);
-      let c = lerp3([118, 66, 42], [168, 104, 70], flake);
-      c = lerp3(c, [138, 126, 114], smooth(0.62, 0.8, flake) * 0.7);
-      return { h, c: lerp3([40, 27, 21], c, plate) };
+    relief: 1.4,
+    paint(W, H, height, out) {
+      const warp = field(W, H, 4, 4, 2, 42), tone = field(W, H, 8, 12, 3, 44);
+      const plates = voronoi(W, H, 6, 7, 41, warp), flakes = voronoi(W, H, 18, 22, 43);
+      const rust: RGB = [132, 74, 48], orange: RGB = [176, 112, 76], grey: RGB = [128, 116, 104], flaking: RGB = [92, 58, 42], fissured: RGB = [34, 23, 18];
+      const p = new Paint();
+      for (let i = 0; i < W * H; i++) {
+        const fissure = 1 - smooth(0.03, 0.18, plates.gap[i]);
+        const own = hash(plates.id[i], 7, 45);
+        const flakeEdge = 1 - smooth(0.0, 0.06, flakes.gap[i]);
+        const t = tone[i];
+        height[i] = (1 - fissure) * (0.75 + 0.15 * own + 0.1 * t) - flakeEdge * 0.12;
+        p.lerp(rust, orange, t * 0.7 + own * 0.3).mix(grey, smooth(0.62, 0.85, own) * 0.55);
+        out(i, p.mix(flaking, flakeEdge * 0.5).mix(fissured, fissure));
+      }
     },
   },
 };
@@ -150,20 +217,15 @@ function dataTexture(data: Uint8Array, w: number, h: number, srgb: boolean, repe
 /** Bark colour and normal maps. U wraps once around a limb; V runs along it (one tile per two circumferences). */
 export function barkMaps(species: TreeSpecies, q: Quality): BarkMaps {
   const W = q === 'high' ? 256 : 128, H = W * 2;
-  const { texel, relief } = BARK[species];
   const height = new Float32Array(W * H);
   const albedo = new Uint8Array(W * H * 4);
-  for (let y = 0; y < H; y++)
-    for (let x = 0; x < W; x++) {
-      const { h, c } = texel(x / W, y / H);
-      const i = y * W + x;
-      height[i] = h;
-      albedo[i * 4] = c[0];
-      albedo[i * 4 + 1] = c[1];
-      albedo[i * 4 + 2] = c[2];
-      albedo[i * 4 + 3] = 255;
-    }
-  // Slopes in texels (V spans twice the distance of U per texel count, so both read alike).
+  BARK[species].paint(W, H, height, (i, p) => {
+    albedo[i * 4] = p.r;
+    albedo[i * 4 + 1] = p.g;
+    albedo[i * 4 + 2] = p.b;
+    albedo[i * 4 + 3] = 255;
+  });
+  // Slopes per texel, scaled so both resolutions give the same relief.
   const k = W / 48;
   const normal = new Uint8Array(W * H * 4);
   for (let y = 0; y < H; y++)
@@ -178,10 +240,10 @@ export function barkMaps(species: TreeSpecies, q: Quality): BarkMaps {
       normal[i + 2] = (1 / len) * 127.5 + 127.5;
       normal[i + 3] = 255;
     }
-  return { map: dataTexture(albedo, W, H, true, true), normalMap: dataTexture(normal, W, H, false, true), relief };
+  return { map: dataTexture(albedo, W, H, true, true), normalMap: dataTexture(normal, W, H, false, true), relief: BARK[species].relief };
 }
 
-/** Seeded random for painting (the colour and mask passes replay the same strokes). */
+/** Seeded random for painting, so every build paints the same sprays. */
 function painter(seed: number) {
   let s = seed >>> 0 || 1;
   const rnd = () => {
@@ -214,12 +276,12 @@ function oakLeaf(len: number, wid: number, lobes: number, skew: number): Pt[] {
 
 function mapleLeaf(r: number): Pt[] {
   // Five pointed lobes fanning from the petiole, with toothed margins and a notch at the base.
-  const lobes: [number, number][] = [[0, 1], [0.86, 0.86], [-0.86, 0.86], [1.75, 0.5], [-1.75, 0.5]];
+  const lobes: [number, number][] = [[0, 1], [0.9, 0.88], [-0.9, 0.88], [1.8, 0.55], [-1.8, 0.55]];
   const pts: Pt[] = [];
   for (let i = 0; i <= 160; i++) {
     const a = -2.75 + (5.5 * i) / 160;
-    let m = 0.28;
-    for (const [c, l] of lobes) m = Math.max(m, l * Math.pow(Math.max(0, 1 - Math.abs(a - c) / 0.52), 0.75));
+    let m = 0.4;
+    for (const [c, l] of lobes) m = Math.max(m, l * Math.pow(Math.max(0, 1 - Math.abs(a - c) / 0.62), 0.6));
     const tooth = 1 + 0.07 * Math.abs(((a * 9) % 1 + 1) % 1 - 0.5) * 2;
     const rr = r * m * tooth;
     pts.push([Math.sin(a) * rr, -Math.cos(a) * rr - r * 0.05]);
@@ -251,226 +313,256 @@ function fillShape(g: Ctx, pts: Pt[]) {
 
 const hsl = (h: number, s: number, l: number, a = 1) => `hsla(${h},${s}%,${l}%,${a})`;
 
-/** A leaf blade with a light-to-shade gradient across it and its veins. */
-function leaf(g: Ctx, mask: boolean, outline: Pt[], len: number, hue: number, sat: number, light: number, veins: number) {
-  if (mask) {
-    g.fillStyle = '#fff';
-    fillShape(g, outline);
-    return;
-  }
+/** A leaf blade at (x, y) pointing along `ang` (0 = up), shaded across its width, with its veins. */
+function leaf(g: Ctx, x: number, y: number, ang: number, outline: Pt[], len: number, hue: number, sat: number, light: number, veins: number) {
+  g.save();
+  g.translate(x, y);
+  g.rotate(ang);
   let w = 0;
   for (const p of outline) w = Math.max(w, Math.abs(p[0]));
   const grad = g.createLinearGradient(-w, 0, w, -len * 0.3);
-  grad.addColorStop(0, hsl(hue, sat, light * 0.72));
+  grad.addColorStop(0, hsl(hue, sat, light * 0.7));
   grad.addColorStop(0.55, hsl(hue - 4, sat, light));
-  grad.addColorStop(1, hsl(hue - 8, sat - 4, light * 1.18));
+  grad.addColorStop(1, hsl(hue - 8, sat - 4, light * 1.2));
   g.fillStyle = grad;
   fillShape(g, outline);
-  g.strokeStyle = hsl(hue - 18, sat - 12, Math.min(85, light * 1.6), 0.55);
-  g.lineWidth = len * 0.022;
+  g.strokeStyle = hsl(hue - 16, sat - 12, Math.min(80, light * 1.55), 0.5);
+  g.lineWidth = len * 0.03;
   g.beginPath();
   g.moveTo(0, 0);
-  g.lineTo(0, -len * 0.94);
+  g.lineTo(0, -len * 0.92);
   g.stroke();
-  g.lineWidth = len * 0.01;
-  g.strokeStyle = hsl(hue - 18, sat - 12, Math.min(85, light * 1.5), 0.35);
-  g.beginPath();
-  for (let i = 1; i <= veins; i++) {
-    const t = i / (veins + 1);
-    for (const s of [-1, 1]) {
-      g.moveTo(0, -len * t);
-      g.lineTo(s * w * 0.75, -len * (t + 0.12));
+  if (veins > 0) {
+    g.lineWidth = len * 0.014;
+    g.strokeStyle = hsl(hue - 16, sat - 12, Math.min(80, light * 1.45), 0.32);
+    g.beginPath();
+    for (let i = 1; i <= veins; i++) {
+      const t = i / (veins + 1);
+      for (const s of [-1, 1]) {
+        g.moveTo(0, -len * t);
+        g.lineTo(s * w * 0.7, -len * (t + 0.13));
+      }
     }
+    g.stroke();
   }
-  g.stroke();
+  g.restore();
 }
 
-/** A tapered twig from the base of the cell toward (tx, ty). */
-function twig(g: Ctx, mask: boolean, tx: number, ty: number, w0: number, colour: string) {
-  g.fillStyle = mask ? '#fff' : colour;
-  const nx = -ty, ny = tx;
-  const n = Math.hypot(nx, ny);
-  const cx = tx * 0.5 + (nx / n) * 0.04, cy = ty * 0.5 + (ny / n) * 0.04;
-  g.beginPath();
-  g.moveTo(-w0, 0);
-  g.quadraticCurveTo(cx - w0 * 0.6, cy, tx, ty);
-  g.quadraticCurveTo(cx + w0 * 0.6, cy, w0, 0);
-  g.closePath();
-  g.fill();
+/** A point along a shoot and the way it is heading (0 = up the cell). */
+interface Node {
+  x: number;
+  y: number;
+  a: number;
 }
 
-/** Point at fraction `t` along the twig curve drawn by `twig` (control point bowed sideways). */
-function onTwig(tx: number, ty: number, t: number): Pt {
-  const nx = -ty, ny = tx;
-  const n = Math.hypot(nx, ny);
-  const cx = tx * 0.5 + (nx / n) * 0.04, cy = ty * 0.5 + (ny / n) * 0.04;
-  const b = 2 * t * (1 - t), c = t * t;
-  return [b * cx + c * tx, b * cy + c * ty];
+/** A twig that tapers and gently turns as it grows; returns its centre line for leaves and side shoots. */
+function shoot(g: Ctx, from: Node, len: number, w0: number, turn: number, colour: string): Node[] {
+  const n = 10;
+  const pts: Node[] = [{ ...from }];
+  for (let i = 1; i <= n; i++) {
+    const p = pts[i - 1];
+    const a = from.a + (turn * i) / n;
+    pts.push({ x: p.x + (Math.sin(a) * len) / n, y: p.y - (Math.cos(a) * len) / n, a });
+  }
+  g.strokeStyle = colour;
+  g.lineCap = 'round';
+  for (let i = 1; i <= n; i++) {
+    g.lineWidth = w0 * (1 - (0.65 * i) / n);
+    g.beginPath();
+    g.moveTo(pts[i - 1].x, pts[i - 1].y);
+    g.lineTo(pts[i].x, pts[i].y);
+    g.stroke();
+  }
+  return pts;
 }
+
+const at = (pts: Node[], t: number) => pts[Math.min(pts.length - 1, Math.round(t * (pts.length - 1)))];
 
 /**
- * Paint one spray into a unit cell: the twig enters at the bottom centre
- * (0, 0) and grows up (−y) toward the tip near (0, −0.95).
+ * Paint one spray into a unit cell: the shoot enters at the bottom centre
+ * (0, 0) and grows up (−y) toward the top edge near y = −0.95. Each spray is
+ * a small branch tip with side shoots, so a card reads as foliage rather
+ * than a few big leaves.
  */
-function paintSpray(g: Ctx, mask: boolean, species: TreeSpecies, row: number) {
+function paintSpray(g: Ctx, species: TreeSpecies, row: number) {
   const { rnd, range } = painter(1 + SPECIES_COLUMN[species] * 31 + row * 7);
-  const tx = range(-0.08, 0.08), ty = -0.86;
+  const side = () => (rnd() < 0.5 ? -1 : 1);
   switch (species) {
     case 'oak': {
-      twig(g, mask, tx, ty, 0.012, '#4a3a2a');
-      // Oak leaves crowd toward the end of each shoot.
-      const n = 7 + row;
-      for (let i = 0; i < n; i++) {
-        const t = i < 2 ? range(0.3, 0.5) : range(0.62, 1);
-        const [x, y] = onTwig(tx, ty, t);
-        const ang = (i % 2 ? 1 : -1) * range(0.35, 1.3) * (i < 2 ? 1.2 : 1) + (i === n - 1 ? -Math.sign(tx) * 0.2 : 0);
-        const len = range(0.3, 0.4) * (i < 2 ? 0.85 : 1);
-        g.save();
-        g.translate(x, y);
-        g.rotate(ang);
-        leaf(g, mask, oakLeaf(len, len * range(0.3, 0.36), 4 + Math.floor(rnd() * 2), range(-0.15, 0.15)), len, range(92, 108), range(38, 52), range(21, 31), 4);
-        g.restore();
+      // Crooked shoots, each ending in a rosette of lobed leaves (oak leaves crowd at the tips).
+      const main = shoot(g, { x: 0, y: 0, a: range(-0.12, 0.12) }, 0.7, 0.02, range(-0.3, 0.3), '#4a3a2a');
+      const tips: Node[] = [main[main.length - 1]];
+      const shoots = [main];
+      const n = 5 + row;
+      for (let k = 0; k < n; k++) {
+        const p = at(main, 0.2 + (0.65 * (k + rnd() * 0.5)) / n);
+        const s = k % 2 ? 1 : -1;
+        const sub = shoot(g, { x: p.x, y: p.y, a: p.a + s * range(0.6, 1.0) }, range(0.2, 0.3), 0.011, s * range(-0.2, 0.4), '#4f3e2c');
+        tips.push(sub[sub.length - 1]);
+        shoots.push(sub);
       }
+      // A few leaves along the shoots, then the crowded rosettes at their tips.
+      for (const pts of shoots)
+        for (const t of [0.35, 0.65]) {
+          const p = at(pts, t + range(-0.08, 0.08));
+          const len = range(0.11, 0.14);
+          leaf(g, p.x, p.y, p.a + side() * range(0.7, 1.2), oakLeaf(len, len * 0.34, 5, range(-0.15, 0.15)), len, range(94, 108), range(34, 46), range(17, 24), 3);
+        }
+      for (const layer of [0.75, 1])
+        for (const tip of tips) {
+          const count = layer < 1 ? 3 : 5;
+          for (let i = 0; i < count; i++) {
+            const a = tip.a + (i / (count - 1) - 0.5) * range(2.4, 3.2) + range(-0.2, 0.2);
+            const len = range(0.12, 0.16);
+            leaf(g, tip.x, tip.y, a, oakLeaf(len, len * range(0.32, 0.38), 4 + Math.floor(rnd() * 2), range(-0.15, 0.15)), len, range(92, 108), range(36, 50), range(20, 30) * layer, 3);
+          }
+        }
       break;
     }
     case 'maple': {
-      twig(g, mask, tx * 0.6, ty * 0.7, 0.01, '#5a4636');
-      // Opposite pairs of palmate leaves on long stalks.
-      const n = 6 + row;
-      for (let i = 0; i < n; i++) {
-        const t = 0.3 + (0.7 * Math.floor(i / 2)) / Math.ceil(n / 2) + range(0, 0.08);
-        const [x, y] = onTwig(tx * 0.6, ty * 0.7, Math.min(1, t));
-        const ang = (i % 2 ? 1 : -1) * range(0.45, 1.15);
-        const stalk = range(0.08, 0.14);
-        const r = range(0.17, 0.22);
+      // Opposite pairs of palmate leaves on long stalks, on short paired side shoots.
+      const main = shoot(g, { x: 0, y: 0, a: range(-0.1, 0.1) }, 0.72, 0.016, range(-0.25, 0.25), '#5a4636');
+      const stalkLeaf = (p: Node, a: number, light: number) => {
+        const stalk = range(0.06, 0.1);
+        const x = p.x + Math.sin(a) * stalk, y = p.y - Math.cos(a) * stalk;
+        g.strokeStyle = '#7a6a3e';
+        g.lineWidth = 0.006;
+        g.beginPath();
+        g.moveTo(p.x, p.y);
+        g.lineTo(x, y);
+        g.stroke();
+        const r = range(0.085, 0.105);
+        leaf(g, x, y, a + range(-0.25, 0.25), mapleLeaf(r), r * 1.1, range(86, 102), range(40, 54), light * range(24, 33), 0);
+        // Palmate veins radiate from the stalk.
         g.save();
         g.translate(x, y);
-        g.rotate(ang);
-        if (!mask) g.strokeStyle = '#6b5a3a';
-        else g.strokeStyle = '#fff';
-        g.lineWidth = 0.008;
+        g.rotate(a);
+        g.strokeStyle = hsl(80, 30, 50, 0.35);
+        g.lineWidth = r * 0.04;
         g.beginPath();
-        g.moveTo(0, 0);
-        g.lineTo(0, -stalk);
-        g.stroke();
-        g.translate(0, -stalk);
-        leaf(g, mask, mapleLeaf(r), r * 1.05, range(86, 104), range(42, 56), range(25, 35), 0);
-        if (!mask) {
-          // Palmate veins radiate from the stalk.
-          g.strokeStyle = hsl(80, 35, 52, 0.4);
-          g.lineWidth = r * 0.025;
-          g.beginPath();
-          for (const a of [0, 0.86, -0.86, 1.7, -1.7]) {
-            g.moveTo(0, -r * 0.05);
-            g.lineTo(Math.sin(a) * r * 0.8, -Math.cos(a) * r * 0.8 - r * 0.05);
-          }
-          g.stroke();
+        for (const v of [0, 0.9, -0.9, 1.8, -1.8]) {
+          g.moveTo(0, -r * 0.05);
+          g.lineTo(Math.sin(v) * r * 0.8, -Math.cos(v) * r * 0.8 - r * 0.05);
         }
+        g.stroke();
         g.restore();
-      }
+      };
+      const nodes = 4;
+      for (const layer of [0.8, 1])
+        for (let k = 0; k < nodes; k++) {
+          const p = at(main, 0.2 + (0.65 * k) / (nodes - 1));
+          for (const s of [-1, 1]) {
+            if (layer < 1) {
+              const sub = shoot(g, { x: p.x, y: p.y, a: p.a + s * range(0.7, 1.0) }, range(0.14, 0.22), 0.008, s * 0.2, '#5a4636');
+              const tip = sub[sub.length - 1];
+              stalkLeaf(tip, tip.a - 0.5, layer);
+              stalkLeaf(tip, tip.a + 0.5, layer);
+            } else stalkLeaf(p, p.a + s * range(0.9, 1.3), layer);
+          }
+        }
+      const tip = main[main.length - 1];
+      for (const a of [-0.6, 0, 0.6]) stalkLeaf(tip, tip.a + a, 1);
       break;
     }
     case 'birch': {
-      twig(g, mask, tx, ty, 0.006, '#3b2a22');
-      // Many small toothed leaves, alternate along a slender twig, hanging loosely.
-      const n = 13 + row * 2;
-      for (let i = 0; i < n; i++) {
-        const t = 0.12 + (0.88 * i) / (n - 1);
-        const [x, y] = onTwig(tx, ty, t);
-        const ang = (i % 2 ? 1 : -1) * range(0.7, 1.5);
-        const len = range(0.13, 0.18) * (0.75 + 0.25 * Math.sin(Math.PI * t));
-        g.save();
-        g.translate(x, y);
-        g.rotate(ang);
-        if (!mask) g.strokeStyle = '#4a3a28';
-        else g.strokeStyle = '#fff';
-        g.lineWidth = 0.005;
-        g.beginPath();
-        g.moveTo(0, 0);
-        g.lineTo(0, -0.03);
-        g.stroke();
-        g.translate(0, -0.03);
-        leaf(g, mask, birchLeaf(len, len * range(0.36, 0.42)), len, range(78, 92), range(46, 60), range(30, 40), 4);
-        g.restore();
+      // A slender hanging shoot with fine side shoots, all set with small toothed leaves.
+      const main = shoot(g, { x: 0, y: 0, a: range(-0.15, 0.15) }, 0.84, 0.009, range(-0.5, 0.5), '#3b2a22');
+      const shoots = [main];
+      const n = 4 + row;
+      for (let k = 0; k < n; k++) {
+        const p = at(main, 0.2 + (0.65 * (k + rnd() * 0.6)) / n);
+        const s = k % 2 ? 1 : -1;
+        shoots.push(shoot(g, { x: p.x, y: p.y, a: p.a + s * range(0.5, 0.9) }, range(0.2, 0.32), 0.005, s * range(0.1, 0.5), '#3b2a22'));
       }
+      for (const pts of shoots)
+        for (let i = 2; i < pts.length; i++) {
+          const p = pts[i];
+          const len = range(0.075, 0.1);
+          leaf(g, p.x, p.y, p.a + side() * range(0.6, 1.3), birchLeaf(len, len * range(0.38, 0.44)), len, range(78, 92), range(46, 60), range(28, 40), 3);
+        }
       break;
     }
     case 'pine': {
-      // Pairs of long needles all along the shoot, swept forward, a tuft at the tip.
-      const steps = 46 + row * 6;
-      g.lineCap = 'round';
-      for (let i = 0; i < steps; i++) {
-        const t = 0.06 + (0.94 * i) / steps;
-        const [x, y] = onTwig(tx, ty, t);
-        const reach = 0.2 + 0.08 * Math.sin(Math.PI * Math.min(1, t * 1.3));
-        for (const s of [-1, 1]) {
-          const a = s * range(0.45, 1.05) * (1 - 0.35 * t);
-          const len = reach * range(0.85, 1.1);
-          const dx = Math.sin(a) * len, dy = -Math.cos(a) * len;
-          if (mask) g.strokeStyle = '#fff';
-          else {
-            const grad = g.createLinearGradient(x, y, x + dx, y + dy);
-            const l = range(17, 25);
-            grad.addColorStop(0, hsl(range(128, 140), 26, l * 0.75));
-            grad.addColorStop(1, hsl(range(110, 126), 30, l * 1.35));
-            g.strokeStyle = grad;
+      // A shoot with side shoots, each a bottle-brush of paired needles swept forward, tufted at the tip.
+      const main = shoot(g, { x: 0, y: 0, a: range(-0.08, 0.08) }, 0.72, 0.018, range(-0.15, 0.15), '#7a4a2c');
+      const shoots = [main];
+      for (let k = 0; k < 3 + row; k++) {
+        const p = at(main, 0.2 + 0.17 * k + range(0, 0.06));
+        const s = k % 2 ? 1 : -1;
+        shoots.push(shoot(g, { x: p.x, y: p.y, a: p.a + s * range(0.55, 0.85) }, range(0.26, 0.36), 0.01, -s * 0.15, '#7a4a2c'));
+      }
+      // Needles grouped into a few shades, darkest first, so the lighter tips lie on top.
+      const shades = [hsl(146, 22, 13), hsl(140, 24, 18), hsl(132, 26, 23), hsl(112, 30, 30)];
+      const lines: number[][] = shades.map(() => []);
+      for (const pts of shoots) {
+        const last = pts[pts.length - 1];
+        const total = Math.hypot(last.x - pts[0].x, last.y - pts[0].y);
+        const steps = Math.round(total / 0.008);
+        for (let i = 2; i <= steps; i++) {
+          const t = i / steps;
+          const p = at(pts, t);
+          const reach = (0.08 + 0.07 * Math.sin(Math.PI * Math.min(1, 0.25 + t))) * range(0.85, 1.15);
+          for (const s of [-1, 1]) {
+            const a = p.a + s * range(0.45, 1.1) * (1 - 0.4 * t);
+            const shade = Math.min(shades.length - 1, Math.floor(rnd() * 3 + t * 1.4));
+            lines[shade].push(p.x, p.y, p.x + Math.sin(a) * reach, p.y - Math.cos(a) * reach);
           }
-          g.lineWidth = range(0.007, 0.01);
-          g.beginPath();
-          g.moveTo(x, y);
-          g.quadraticCurveTo(x + dx * 0.5 + s * 0.01, y + dy * 0.55, x + dx, y + dy);
-          g.stroke();
+        }
+        for (let i = 0; i < 9; i++) {
+          const a = last.a + (i / 8 - 0.5) * 1.8;
+          const reach = range(0.06, 0.1);
+          lines[3].push(last.x, last.y, last.x + Math.sin(a) * reach, last.y - Math.cos(a) * reach);
         }
       }
-      twig(g, mask, tx, ty, 0.014, '#7a4a2c');
-      const [x, y] = onTwig(tx, ty, 1);
-      g.fillStyle = mask ? '#fff' : '#8a5a36';
-      g.beginPath();
-      g.ellipse(x, y - 0.015, 0.01, 0.028, 0, 0, Math.PI * 2);
-      g.fill();
+      g.lineCap = 'round';
+      lines.forEach((ls, k) => {
+        g.strokeStyle = shades[k];
+        g.lineWidth = 0.0075;
+        g.beginPath();
+        for (let i = 0; i < ls.length; i += 4) {
+          g.moveTo(ls[i], ls[i + 1]);
+          g.lineTo(ls[i + 2], ls[i + 3]);
+        }
+        g.stroke();
+      });
       break;
     }
   }
 }
 
-/** Mean colour of each species' leaves, painted under the sprays so mip levels never darken their edges. */
-const LEAF_BACKDROP: Record<TreeSpecies, string> = { oak: '#344a22', maple: '#3d5726', birch: '#58702e', pine: '#263a26' };
+/** Mean colour of each species' leaves, given to the transparent texels so mip levels never darken leaf edges. */
+const LEAF_BACKDROP: Record<TreeSpecies, RGB> = { oak: [52, 74, 34], maple: [61, 87, 38], birch: [88, 112, 46], pine: [38, 58, 38] };
 
-/** The foliage atlas: real leaf and needle sprays on transparent ground, mipmapped without dark fringes. */
+/** The foliage atlas: real leaf and needle sprays on transparent ground. */
 export function leafAtlas(q: Quality): THREE.DataTexture {
-  const cell = q === 'high' ? 512 : q === 'medium' ? 256 : 128;
+  const cell = q === 'high' ? 256 : 128;
   const W = cell * LEAF_ATLAS.cols, H = cell * LEAF_ATLAS.rows;
-  const make = () => {
-    const c = document.createElement('canvas');
-    c.width = W;
-    c.height = H;
-    return c.getContext('2d', { willReadFrequently: true })!;
-  };
-  const colour = make(), mask = make();
-  mask.fillStyle = '#000';
-  mask.fillRect(0, 0, W, H);
-  for (const species of Object.keys(SPECIES_COLUMN) as TreeSpecies[]) {
-    const col = SPECIES_COLUMN[species];
-    colour.fillStyle = LEAF_BACKDROP[species];
-    colour.fillRect(col * cell, 0, cell, H);
-    for (let row = 0; row < LEAF_ATLAS.rows; row++)
-      for (const [g, isMask] of [[colour, false], [mask, true]] as const) {
-        g.save();
-        g.translate(col * cell + cell / 2, row * cell + cell * 0.97);
-        g.scale(cell, cell);
-        paintSpray(g, isMask, species, row);
-        g.restore();
-      }
-  }
-  const rgba = colour.getImageData(0, 0, W, H).data;
-  const alpha = mask.getImageData(0, 0, W, H).data;
-  const data = new Uint8Array(W * H * 4);
-  for (let i = 0; i < data.length; i += 4) {
-    data[i] = rgba[i];
-    data[i + 1] = rgba[i + 1];
-    data[i + 2] = rgba[i + 2];
-    data[i + 3] = alpha[i];
-  }
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const g = canvas.getContext('2d', { willReadFrequently: true })!;
+  const species = (Object.keys(SPECIES_COLUMN) as TreeSpecies[]).sort((a, b) => SPECIES_COLUMN[a] - SPECIES_COLUMN[b]);
+  for (const sp of species)
+    for (let row = 0; row < LEAF_ATLAS.rows; row++) {
+      const col = SPECIES_COLUMN[sp];
+      g.save();
+      // Keep every spray inside its own cell, clear of the edges that mip levels blend.
+      g.beginPath();
+      g.rect(col * cell + 2, row * cell + 2, cell - 4, cell - 4);
+      g.clip();
+      g.translate(col * cell + cell / 2, row * cell + cell * 0.97);
+      g.scale(cell, cell);
+      paintSpray(g, sp, row);
+      g.restore();
+    }
+  const data = new Uint8Array(g.getImageData(0, 0, W, H).data.buffer);
+  for (let i = 0; i < data.length; i += 4)
+    if (data[i + 3] === 0) {
+      const back = LEAF_BACKDROP[species[Math.floor(((i / 4) % W) / cell)]];
+      data[i] = back[0];
+      data[i + 1] = back[1];
+      data[i + 2] = back[2];
+    }
   return dataTexture(data, W, H, true, false);
 }
 
