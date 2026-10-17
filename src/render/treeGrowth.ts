@@ -25,6 +25,8 @@ export interface Branch {
   phase: number;
   /** Root flare and buttress strength (trunks only). */
   flare: number;
+  /** A fine leaf-bearing shoot (meshed coarsely, or left to the painted sprays). */
+  twig: boolean;
 }
 
 export interface LeafCluster {
@@ -133,6 +135,7 @@ interface GrowSpec {
   flex: number;
   phase: number;
   flare?: number;
+  twig?: boolean;
   /** Radius profile exponent (below 1 keeps the base thick for longer). */
   taper?: number;
 }
@@ -166,7 +169,7 @@ class Grower {
       const r = g.r1 + (g.r0 - g.r1) * Math.pow(1 - s, g.taper ?? 1);
       nodes.push({ p: p.clone(), r, bend: g.bend0 + g.flex * Math.pow(s, 1.5) });
     }
-    const b: Branch = { level: g.level, nodes, phase: g.phase, flare: g.flare ?? 0 };
+    const b: Branch = { level: g.level, nodes, phase: g.phase, flare: g.flare ?? 0, twig: g.twig ?? false };
     this.branches.push(b);
     return b;
   }
@@ -360,6 +363,7 @@ function broadleaf(g: Grower, s: BroadleafSpec, species: TreeSpecies, variant: n
           r1: 0.005,
           segs: 2,
           level: 3,
+          twig: true,
           curve: 0.2,
           tropism: () => 0.15,
           bend0: at2.bend,
@@ -436,6 +440,7 @@ function birch(g: Grower, variant: number, q: Quality): TreeSkeleton {
           r1: 0.003,
           segs: 3,
           level: 2,
+          twig: true,
           curve: 0.15,
           tropism: () => -1.1,
           bend0: at2.bend,
