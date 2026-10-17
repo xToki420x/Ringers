@@ -13,16 +13,60 @@ import type { DeliveryError } from '../physics/throwModel';
 
 export type Difficulty = 'amateur' | 'pro' | 'world';
 
-export const DIFFICULTY: Record<Difficulty, { name: string; assist: number; zone: number; band: number; blurb: string }> = {
-  amateur: { name: 'Amateur', assist: 0.4, zone: 0.05, band: 0.045, blurb: 'Generous timing and a wide power zone.' },
-  pro: { name: 'Pro', assist: 0.72, zone: 0.03, band: 0.03, blurb: 'Tournament feel. Small mistakes show.' },
-  world: { name: 'World Class', assist: 1.0, zone: 0.02, band: 0.02, blurb: 'Raw physics. Every pixel counts.' },
+/**
+ * `assist` scales how much a stroke's measured mistakes cost; `jitter` is the
+ * hand's own unsteadiness — release noise that even a perfect stroke carries.
+ * `zone` and `band` are drawn to match the power and release-timing windows
+ * that still give a ringer.
+ */
+export const DIFFICULTY: Record<Difficulty, { name: string; assist: number; jitter: number; zone: number; band: number; blurb: string }> = {
+  amateur: { name: 'Amateur', assist: 3.5, jitter: 1.4, zone: 0.025, band: 0.03, blurb: 'Forgiving, but ringers still take a clean stroke.' },
+  pro: { name: 'Pro', assist: 5, jitter: 1.8, zone: 0.018, band: 0.022, blurb: 'Tournament feel. Small mistakes cost ringers.' },
+  world: { name: 'World Class', assist: 6.5, jitter: 2.3, zone: 0.014, band: 0.016, blurb: 'A clean stroke and a steady hand, every time.' },
 };
 
 /** Power-meter value that produces the ideal speed. */
 export const P_IDEAL = 0.78;
 /** Speed change across the full meter. */
 const POWER_RANGE = 0.3;
+
+/** Power mistakes cost less than the others: the meter is the hardest thing to hit exactly. */
+const POWER_SHARE = 0.6;
+/** Offsets that centre a perfect stroke in the ringer window (it is lopsided: long and over-rotated forgive more). */
+const POWER_BIAS = 0.01;
+const ROTATION_BIAS = 0.04;
+/** Release noise per unit of jitter (one standard deviation). */
+export const JITTER = { power: 0.004, yaw: 0.0012, rotation: 0.03, tilt: 0.02, wobble: 0.15, arc: 0.003 };
+
+/** A stroke measured in screen fractions (see ThrowControl.release). */
+export interface StrokeMeasure {
+  /** Power-meter value at the bottom of the backswing. */
+  power: number;
+  /** Release distance from the release line (+ late, − early), fraction of screen height. */
+  rel: number;
+  /** Sideways drift of the forward stroke, fraction of screen width. */
+  drift: number;
+  /** Mean signed bow of the stroke, fraction of screen width. */
+  sway: number;
+  /** Largest stray from a straight stroke, fraction of screen width. */
+  dev: number;
+}
+
+/** Turn a measured stroke into the delivery error for a difficulty. */
+export function gestureError(m: StrokeMeasure, difficulty: Difficulty, random: () => number = Math.random): DeliveryError {
+  const { assist, jitter } = DIFFICULTY[difficulty];
+  // Gaussian release noise (Box–Muller), sized per axis for one unit of jitter.
+  const noise = (sigma: number) => Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random()) * sigma * jitter;
+  return {
+    power: POWER_BIAS + (m.power - P_IDEAL) * POWER_RANGE * POWER_SHARE * assist + noise(JITTER.power),
+    yaw: -m.drift * 0.032 * assist + noise(JITTER.yaw),
+    rotation: ROTATION_BIAS + m.rel * 1.5 * assist + noise(JITTER.rotation),
+    tilt: m.sway * 2.2 * assist + noise(JITTER.tilt),
+    wobble: Math.max(0, m.dev - 0.006) * 14 * assist + Math.abs(noise(JITTER.wobble)),
+    wobbleDir: random() * Math.PI * 2,
+    arc: m.rel * 0.06 * assist + noise(JITTER.arc),
+  };
+}
 
 export interface Gesture {
   power: number;
@@ -162,7 +206,6 @@ export class ThrowControl {
   private release(x: number, y: number) {
     if (this.phase !== 'push') return;
     const H = this.H, W = this.W;
-    const assist = DIFFICULTY[this.difficulty].assist;
     // Timing: distance of the release point from the release line (the first touch).
     const rel = (this.ay - y) / H; // + late, − early
     // Lateral drift of the forward stroke.
@@ -180,16 +223,7 @@ export class ThrowControl {
     }
     signedDev /= Math.max(1, this.path.length);
     const dev = Math.abs(maxDev) / W;
-    const noise = () => (Math.random() - 0.5) * 2;
-    const err: DeliveryError = {
-      power: (this.power - P_IDEAL) * POWER_RANGE * assist + noise() * 0.0015 * assist,
-      yaw: -drift * 0.032 * assist + noise() * 0.0004 * assist,
-      rotation: rel * 1.5 * assist + noise() * 0.01 * assist,
-      tilt: (signedDev / W) * 2.2 * assist,
-      wobble: Math.max(0, dev - 0.006) * 14 * assist,
-      wobbleDir: Math.random() * Math.PI * 2,
-      arc: rel * 0.06 * assist,
-    };
+    const err = gestureError({ power: this.power, rel, drift, sway: signedDev / W, dev }, this.difficulty);
     const g: Gesture = { power: this.power, error: err, flipFactor: 1 + err.rotation, drift, wobbly: dev > 0.03 };
     this.reset();
     this.hooks.onSwing(1, g.power);
