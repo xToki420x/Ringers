@@ -158,7 +158,7 @@ const BARK: Record<TreeSpecies, { paint: BarkPainter; relief: number }> = {
       const warp = field(W, H, 4, 2, 2, 11), mottle = field(W, H, 4, 6, 3, 15), grain = field(W, H, 40, 6, 2, 14);
       const { gap } = voronoi(W, H, 14, 3, 12, warp);
       const rough = field(W, H, 32, 64, 1, 16);
-      const furrow: RGB = [30, 25, 21], ridgeTop: RGB = [122, 110, 95], weathered: RGB = [86, 75, 63], lichen: RGB = [132, 138, 108];
+      const furrow: RGB = [33, 26, 20], ridgeTop: RGB = [126, 110, 92], weathered: RGB = [88, 76, 62], lichen: RGB = [132, 138, 108];
       const p = new Paint();
       for (let i = 0; i < W * H; i++) {
         // Furrows wander in width and fall away steeply; ridge tops are rounded and rough.

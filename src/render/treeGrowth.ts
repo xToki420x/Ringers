@@ -276,53 +276,58 @@ function broadleaf(g: Grower, s: BroadleafSpec, species: TreeSpecies, variant: n
   const centre = new THREE.Vector3(g.range(-0.3, 0.3), s.crownY + g.range(-0.2, 0.2), g.range(-0.3, 0.3));
   const radii = new THREE.Vector3(s.crownR[0] * g.range(0.92, 1.08), s.crownR[1] * g.range(0.94, 1.06), s.crownR[0] * g.range(0.92, 1.08));
   const lean = spread(UP, g.range(0, Math.PI * 2), g.range(0.02, 0.07));
+  // The trunk carries on up through the crown as the leader, one unbroken tapering stem.
+  const bole = g.range(...s.trunkLength);
+  const leaderLength = Math.min(g.range(...s.limbLength) * 0.85, reachInEllipsoid(new THREE.Vector3(0, bole, 0), UP, centre, radii) * 0.92);
+  const boleShare = bole / (bole + leaderLength);
   const trunk = g.grow({
     from: new THREE.Vector3(0, -0.25, 0),
     dir: lean,
-    length: g.range(...s.trunkLength),
+    length: bole + leaderLength,
     r0: s.trunkR,
-    r1: s.trunkR * 0.62,
-    segs: 5,
+    r1: 0.035,
+    segs: 9,
     level: 0,
     curve: 0.05,
-    tropism: () => 0.04,
+    tropism: () => 0.06,
     bend0: 0,
-    flex: 0,
+    flex: 0.2,
     phase: 0,
     flare: s.flare,
     taper: 0.8,
   });
   const nLimbs = s.limbs[variant % s.limbs.length];
   const roll0 = g.range(0, Math.PI * 2);
-  // The leader carries on up the middle; the other limbs fan out around it.
+  // Limbs fan out around the bole; the leader's own side branches come last.
   for (let i = 0; i <= nLimbs; i++) {
     const leader = i === nLimbs;
-    const t = leader ? 1 : g.range(...s.limbAt);
-    const at = along(trunk, t);
-    const dir = leader
-      ? spread(at.dir, g.range(0, Math.PI * 2), g.range(0.05, 0.2))
-      : spread(UP, roll0 + (i / nLimbs) * Math.PI * 2 + g.range(-0.35, 0.35), g.range(...s.limbAngle));
-    const length = Math.min(g.range(...s.limbLength) * (leader ? 0.85 : 1), reachInEllipsoid(at.p, dir, centre, radii) * 0.92);
-    if (length < 0.8) continue;
-    const limb = g.grow({
-      from: at.p,
-      dir,
-      length,
-      r0: at.r * (leader ? 0.75 : g.range(0.55, 0.7)),
-      r1: 0.035,
-      segs: 6,
-      level: 1,
-      curve: s.limbCurve,
-      tropism: leader ? () => 0.15 : s.limbTropism,
-      bend0: 0,
-      flex: leader ? 0.25 : 0.35,
-      phase: g.range(0, Math.PI * 2),
-      taper: 0.85,
-    });
+    let limb = trunk, length = leaderLength, on = (t: number) => along(trunk, boleShare + t * (1 - boleShare));
+    if (!leader) {
+      const at = along(trunk, g.range(...s.limbAt) * boleShare);
+      const dir = spread(UP, roll0 + (i / nLimbs) * Math.PI * 2 + g.range(-0.35, 0.35), g.range(...s.limbAngle));
+      length = Math.min(g.range(...s.limbLength), reachInEllipsoid(at.p, dir, centre, radii) * 0.92);
+      if (length < 0.8) continue;
+      limb = g.grow({
+        from: at.p,
+        dir,
+        length,
+        r0: at.r * g.range(0.55, 0.7),
+        r1: 0.035,
+        segs: 6,
+        level: 1,
+        curve: s.limbCurve,
+        tropism: s.limbTropism,
+        bend0: 0,
+        flex: 0.35,
+        phase: g.range(0, Math.PI * 2),
+        taper: 0.85,
+      });
+      on = (t) => along(limb, t);
+    }
     const nBranch = Math.max(3, Math.round(s.branches * (0.6 + 0.4 * k)));
     for (let j = 0; j < nBranch; j++) {
       const tb = 0.22 + (0.74 * (j + g.rnd() * 0.6)) / nBranch;
-      const ab = along(limb, tb);
+      const ab = on(tb);
       const bdir = spread(ab.dir, j * GOLDEN * 2 + g.range(-0.4, 0.4), g.range(...s.branchAngle));
       bdir.y += 0.2;
       bdir.normalize();
