@@ -132,7 +132,7 @@ const BARK: Record<TreeSpecies, { paint: BarkPainter; relief: number }> = {
     relief: 1.6,
     paint(W, H, height, out) {
       const warp = field(W, H, 4, 2, 2, 11), mottle = field(W, H, 4, 6, 3, 15), grain = field(W, H, 32, 4, 2, 14);
-      const { gap } = voronoi(W, H, 12, 4, 12, warp);
+      const { gap } = voronoi(W, H, 14, 3, 12, warp);
       const cracks = field(W, H, 9, 26, 1, 13);
       const furrow: RGB = [38, 31, 25], ridgeTop: RGB = [126, 114, 98], weathered: RGB = [92, 78, 64], lichen: RGB = [136, 140, 112];
       const p = new Paint();
