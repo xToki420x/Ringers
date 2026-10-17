@@ -1,9 +1,10 @@
 import * as THREE from 'three';
-import { BODY_MATS, BONE, BONES, buildSkeleton, type BodyMat, type BodyMesh } from './humanBody';
+import { BODY_MATS, BONE, BONES, buildSkeleton, probeSurface, type BodyMat, type BodyMesh } from './humanBody';
 
 /**
  * A pitcher: the generated seamless body as a skinned mesh, dressed with a
- * cap and wraparound sunglasses, driven by a procedural underhand delivery —
+ * fitted cap, wraparound sunglasses, a polo collar and placket, a belt
+ * buckle and a watch, driven by a procedural underhand delivery —
  * set, backswing, step with the opposite foot, release beside the hip,
  * follow-through — and a relaxed idle while waiting.
  */
@@ -14,12 +15,13 @@ export interface PitcherLook {
   skin: string;
   cap: string;
   shoes: string;
+  sole: string;
   hair: string;
 }
 
 export const LOOKS: PitcherLook[] = [
-  { shirt: '#14427e', pants: '#22324d', skin: '#d39a72', cap: '#0c1b33', shoes: '#efeee9', hair: '#2e2116' },
-  { shirt: '#9e1b22', pants: '#33363c', skin: '#a2673f', cap: '#16181b', shoes: '#262626', hair: '#120d09' },
+  { shirt: '#1b4f93', pants: '#273246', skin: '#d6a07a', cap: '#13233d', shoes: '#f1f0eb', sole: '#cfc9bd', hair: '#3b2a1c' },
+  { shirt: '#a3212a', pants: '#383b42', skin: '#9a6240', cap: '#1a1b1e', shoes: '#2b2c30', sole: '#e8e5de', hair: '#140e0a' },
 ];
 
 /** Surface response per garment: roughness, sheen. */
@@ -40,7 +42,7 @@ function albedo(m: BodyMat, look: PitcherLook): THREE.Color {
     case 'pants': return new THREE.Color(look.pants);
     case 'belt': return new THREE.Color('#3a2416');
     case 'shoe': return new THREE.Color(look.shoes);
-    case 'sole': return new THREE.Color('#a8794a');
+    case 'sole': return new THREE.Color(look.sole);
     case 'hair': return new THREE.Color(look.hair);
   }
 }
@@ -86,49 +88,229 @@ function dressedBody(body: BodyMesh, look: PitcherLook): { geometry: THREE.Buffe
   return { geometry: geo, material };
 }
 
-/** Cap (crown, brim, button) and sunglasses, in head-bone space. */
-function accessories(look: PitcherLook): THREE.Group {
-  const g = new THREE.Group();
-  const head = BONES[BONE.head].head;
-  const cx = 0, cy = 1.668 - head[1], cz = 0.008 - head[2];
-  const capMat = new THREE.MeshPhysicalMaterial({ color: look.cap, roughness: 0.72, sheen: 1, sheenRoughness: 0.5, sheenColor: new THREE.Color(look.cap).lerp(new THREE.Color(1, 1, 1), 0.35) });
-  const crown = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24, 0, Math.PI * 2, 0, Math.PI * 0.52), capMat);
-  crown.scale.set(0.088, 0.085, 0.102);
-  crown.position.set(cx, cy + 0.008, cz - 0.004);
-  crown.rotation.x = -0.12;
-  // Curved brim from an extruded, bevelled half-ellipse.
+type V3 = [number, number, number];
+
+/** Moves a mesh built in world (bind-pose) coordinates into a bone's space. */
+function onBone(bones: THREE.Bone[], bone: number, ...meshes: THREE.Object3D[]) {
+  const h = BONES[bone].head;
+  for (const m of meshes) {
+    m.position.x -= h[0];
+    m.position.y -= h[1];
+    m.position.z -= h[2];
+    m.castShadow = true;
+    bones[bone].add(m);
+  }
+}
+
+/** Fabric with sheen tinted by its own colour, matching the body's garments. */
+function cloth(color: string, roughness = 0.75) {
+  const c = new THREE.Color(color);
+  const tint = c.clone().multiplyScalar(2.2);
+  tint.setRGB(Math.min(1, tint.r), Math.min(1, tint.g), Math.min(1, tint.b));
+  return new THREE.MeshPhysicalMaterial({ color: c, roughness, sheen: 0.35, sheenRoughness: 0.5, sheenColor: tint });
+}
+
+/** Six-panel cap: crown, a brim that follows the crown's front edge, seams and a button. */
+function cap(look: PitcherLook): THREE.Group {
+  const frame = new THREE.Group();
+  frame.position.set(0, 1.701, -0.012);
+  frame.rotation.x = -0.16;
+  const mat = cloth(look.cap, 0.72);
+  const R: V3 = [0.089, 0.089, 0.108];
+  const LOW = 0.58 * Math.PI;
+  const crown = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 28, 0, Math.PI * 2, 0, LOW), mat);
+  crown.scale.set(...R);
+  frame.add(crown);
+  // Panel seams and the sweatband edge as slim raised lines.
+  const seamMat = cloth(new THREE.Color(look.cap).multiplyScalar(0.78).getStyle(), 0.8);
+  const edgeY = Math.cos(LOW), edgeR = Math.sin(LOW);
+  for (let k = 0; k < 6; k++) {
+    const phi = (k / 6) * Math.PI * 2 + Math.PI / 6;
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= 16; i++) {
+      const th = (i / 16) * LOW;
+      pts.push(new THREE.Vector3(Math.sin(th) * Math.sin(phi) * R[0] * 1.012, Math.cos(th) * R[1] * 1.012, Math.sin(th) * Math.cos(phi) * R[2] * 1.012));
+    }
+    frame.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 16, 0.0012, 4), seamMat));
+  }
+  // Brim: inner edge on the crown's rim, reaching forward, drooping at the sides.
   const shape = new THREE.Shape();
-  shape.moveTo(-0.08, 0);
-  shape.absellipse(0, 0, 0.08, 0.075, Math.PI, 0, true);
-  shape.lineTo(-0.08, 0);
-  const brimGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.004, bevelEnabled: true, bevelThickness: 0.0015, bevelSize: 0.0015, bevelSegments: 3, curveSegments: 40 });
+  const th0 = 0.17 * Math.PI, N = 40;
+  const inner = (t: number) => new THREE.Vector2(Math.cos(t) * R[0] * edgeR, Math.sin(t) * R[2] * edgeR);
+  for (let i = 0; i <= N; i++) {
+    const t = th0 + (i / N) * (Math.PI - 2 * th0);
+    const p = inner(t);
+    if (i === 0) shape.moveTo(p.x, p.y);
+    else shape.lineTo(p.x, p.y);
+  }
+  for (let i = N; i >= 0; i--) {
+    const t = th0 + (i / N) * (Math.PI - 2 * th0);
+    const p = inner(t);
+    const reach = 0.072 * Math.pow(Math.sin(t), 1.6);
+    shape.lineTo(p.x * 1.05, p.y + reach);
+  }
+  const brimGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.004, bevelEnabled: true, bevelThickness: 0.0014, bevelSize: 0.0014, bevelSegments: 2, curveSegments: 4 });
+  brimGeo.rotateX(Math.PI / 2);
   const bp = brimGeo.getAttribute('position');
+  const z0 = R[2] * edgeR * 0.9;
   for (let i = 0; i < bp.count; i++) {
-    const x = bp.getX(i), y = bp.getY(i);
-    bp.setZ(i, bp.getZ(i) - (x * x) * 2.2 - y * 0.05);
+    const x = bp.getX(i), z = bp.getZ(i);
+    bp.setY(i, bp.getY(i) + edgeY * R[1] + 0.003 - x * x * 2.4 - Math.max(0, z - z0) * 0.32);
   }
   brimGeo.computeVertexNormals();
-  const brim = new THREE.Mesh(brimGeo, capMat);
-  brim.rotation.x = Math.PI / 2 - 0.2;
-  brim.position.set(cx, cy + 0.02, cz + 0.07);
-  const button = new THREE.Mesh(new THREE.SphereGeometry(0.009, 16, 8), capMat);
-  button.position.set(cx, cy + 0.093, cz - 0.012);
-  // Wraparound sunglasses.
-  const lensMat = new THREE.MeshPhysicalMaterial({ color: '#0b0d10', metalness: 0.8, roughness: 0.05, clearcoat: 1, clearcoatRoughness: 0.02, iridescence: 0.6, iridescenceIOR: 1.8 });
-  const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.086, 0.038, 48, 1, true, -1.2, 2.4), lensMat);
-  lens.position.set(cx, cy - 0.02, cz - 0.004);
-  lens.material.side = THREE.DoubleSide;
-  const frameMat = new THREE.MeshPhysicalMaterial({ color: '#111', roughness: 0.3, clearcoat: 0.6 });
+  frame.add(new THREE.Mesh(brimGeo, mat));
+  const button = new THREE.Mesh(new THREE.SphereGeometry(0.0075, 16, 8), mat);
+  button.scale.y = 0.55;
+  button.position.y = R[1];
+  frame.add(button);
+  frame.traverse((o) => (o.castShadow = true));
+  return frame;
+}
+
+/** Wraparound sunglasses: two lenses curved around the face, frame, bridge and temples. */
+function sunglasses(): THREE.Group {
+  const g = new THREE.Group();
+  const WR = 0.1, ZC = 0.006, YC = 1.656;
+  const wrap = (u: number, y: number) => {
+    const a = u / WR;
+    return new THREE.Vector3(WR * Math.sin(a), y, ZC + WR * Math.cos(a) - (y - YC) * (y - YC) * 1.2);
+  };
+  const lensMat = new THREE.MeshPhysicalMaterial({ color: '#07090c', metalness: 0.6, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02, iridescence: 0.7, iridescenceIOR: 1.8, side: THREE.DoubleSide });
+  const frameMat = new THREE.MeshPhysicalMaterial({ color: '#15171a', roughness: 0.32, clearcoat: 0.7, clearcoatRoughness: 0.2 });
   for (const s of [1, -1]) {
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.006, 0.085), frameMat);
-    arm.position.set(cx + s * 0.083, cy - 0.012, cz - 0.04);
-    g.add(arm);
+    const uc = s * 0.034;
+    // Lens outline in (arc length, height): a soft trapezoid, deeper at the outside, clear of the nose.
+    const outline: THREE.Vector2[] = [];
+    const M = 48;
+    for (let i = 0; i < M; i++) {
+      const t = (i / M) * Math.PI * 2;
+      const c = Math.cos(t), sn = Math.sin(t);
+      const ex = Math.sign(c) * Math.pow(Math.abs(c), 0.62);
+      const ey = Math.sign(sn) * Math.pow(Math.abs(sn), 0.7);
+      const outer = s * ex > 0 ? 1 : 0;
+      const hh = 0.0165 + 0.003 * outer * Math.max(0, -ey);
+      let y = YC + ey * hh + 0.002 * s * ex;
+      const u = uc + ex * 0.0275;
+      if (s * ex < -0.4 && ey < 0) y += 0.006 * (-ey) * (-s * ex - 0.4); // nose cut
+      outline.push(new THREE.Vector2(u, y));
+    }
+    const geo = new THREE.ShapeGeometry(new THREE.Shape(outline), 8);
+    const lp = geo.getAttribute('position');
+    for (let i = 0; i < lp.count; i++) {
+      const v = wrap(lp.getX(i), lp.getY(i));
+      lp.setXYZ(i, v.x, v.y, v.z);
+    }
+    geo.computeVertexNormals();
+    g.add(new THREE.Mesh(geo, lensMat));
+    const ring = outline.map((p) => wrap(p.x, p.y).multiplyScalar(1).add(new THREE.Vector3(0, 0, 0.0008)));
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(ring, true), 64, 0.0019, 6, true), frameMat));
+    // End piece and temple: round the side of the face, over the ear.
+    const temple = new THREE.CatmullRomCurve3([
+      wrap(s * 0.061, YC + 0.009),
+      new THREE.Vector3(s * 0.079, YC + 0.01, 0.06),
+      new THREE.Vector3(s * 0.088, YC + 0.014, 0.02),
+      new THREE.Vector3(s * 0.088, YC + 0.018, -0.02),
+      new THREE.Vector3(s * 0.082, YC + 0.004, -0.045),
+    ]);
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(temple, 24, 0.0017, 6), frameMat));
   }
-  for (const m of [crown, brim, button, lens]) {
-    m.castShadow = true;
-    g.add(m);
-  }
+  const bridge = new THREE.CatmullRomCurve3([wrap(-0.009, YC + 0.012), wrap(0, YC + 0.009), wrap(0.009, YC + 0.012)]);
+  g.add(new THREE.Mesh(new THREE.TubeGeometry(bridge, 8, 0.0019, 6), frameMat));
   return g;
+}
+
+/** Polo collar fitted to the shoulders, with an open placket and two buttons. */
+function poloCollar(look: PitcherLook, bones: THREE.Bone[]) {
+  // A shade darker than the shirt's albedo to sit with the body's baked occlusion.
+  const mat = cloth(new THREE.Color(look.shirt).multiplyScalar(0.82).getStyle(), 0.8);
+  mat.side = THREE.DoubleSide;
+  const gap = 0.42, A = 36;
+  // Profile from the neckline: up the stand, fold over, down onto the shoulders.
+  const prof: [number, number][] = [[0.066, 1.448], [0.062, 1.47], [0.062, 1.486], [0.068, 1.492], [0.076, 1.484]];
+  const pos: number[] = [];
+  const idx: number[] = [];
+  const K = prof.length + 2;
+  for (let a = 0; a <= A; a++) {
+    const phi = gap + (a / A) * (Math.PI * 2 - 2 * gap);
+    const sx = Math.sin(phi), cz = Math.cos(phi) * 0.95;
+    for (const [r, y] of prof) pos.push(r * sx, y, r * cz - 0.004);
+    for (const r of [0.088, 0.1]) {
+      const hit = probeSurface([r * sx, 1.53, r * cz - 0.004], [0, -1, 0]);
+      pos.push(r * sx, (hit ? hit.y : 1.45) + 0.0035, r * cz - 0.004);
+    }
+    if (a > 0)
+      for (let k = 0; k < K - 1; k++) {
+        const i0 = (a - 1) * K + k, i1 = a * K + k;
+        idx.push(i0, i1, i0 + 1, i1, i1 + 1, i0 + 1);
+      }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const collar = new THREE.Mesh(geo, mat);
+  // Placket strip and buttons, laid on the chest.
+  const strip: number[] = [];
+  const sIdx: number[] = [];
+  const ys = [1.452, 1.43, 1.41, 1.39, 1.372];
+  ys.forEach((y, i) => {
+    for (const x of [-0.013, 0.013]) {
+      const hit = probeSurface([x, y, 0.4], [0, 0, -1]);
+      strip.push(x, y, (hit ? hit.z : 0.09) + 0.0022);
+    }
+    if (i > 0) sIdx.push(i * 2 - 2, i * 2, i * 2 - 1, i * 2, i * 2 + 1, i * 2 - 1);
+  });
+  const pg = new THREE.BufferGeometry();
+  pg.setAttribute('position', new THREE.Float32BufferAttribute(strip, 3));
+  pg.setIndex(sIdx);
+  pg.computeVertexNormals();
+  const placket = new THREE.Mesh(pg, mat);
+  const btnMat = new THREE.MeshPhysicalMaterial({ color: '#f3efe6', roughness: 0.25, clearcoat: 0.8 });
+  const parts: THREE.Object3D[] = [collar, placket];
+  for (const y of [1.432, 1.398]) {
+    const hit = probeSurface([0, y, 0.4], [0, 0, -1]);
+    const b = new THREE.Mesh(new THREE.CylinderGeometry(0.0048, 0.0048, 0.0025, 14), btnMat);
+    b.rotation.x = Math.PI / 2;
+    b.position.set(0, y, (hit ? hit.z : 0.09) + 0.0035);
+    parts.push(b);
+  }
+  onBone(bones, BONE.chest, ...parts);
+}
+
+function trims(look: PitcherLook, bones: THREE.Bone[]) {
+  const head = BONES[BONE.head].head;
+  const capFrame = cap(look);
+  capFrame.position.x -= head[0];
+  capFrame.position.y -= head[1];
+  capFrame.position.z -= head[2];
+  bones[BONE.head].add(capFrame);
+  onBone(bones, BONE.head, sunglasses());
+  poloCollar(look, bones);
+  // Belt buckle.
+  const metal = new THREE.MeshPhysicalMaterial({ color: '#c9c3b4', metalness: 1, roughness: 0.28 });
+  const hit = probeSurface([0, 0.965, 0.4], [0, 0, -1]);
+  const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.046, 0.032, 0.006), metal);
+  buckle.position.set(0, 0.965, (hit ? hit.z : 0.1) + 0.002);
+  onBone(bones, BONE.hips, buckle);
+  // Watch on the left wrist.
+  const fa = BONES[BONE.forearmL];
+  const at = new THREE.Vector3(...fa.head).lerp(new THREE.Vector3(...fa.tail), 0.86);
+  const axis = new THREE.Vector3(...fa.tail).sub(new THREE.Vector3(...fa.head)).normalize();
+  const watch = new THREE.Group();
+  const strap = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.0055, 8, 32), new THREE.MeshPhysicalMaterial({ color: '#1c1d20', roughness: 0.6 }));
+  strap.scale.set(0.78, 1, 1);
+  watch.add(strap);
+  const face = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.008, 24), metal);
+  face.rotation.z = Math.PI / 2;
+  face.position.x = 0.026;
+  const glass = new THREE.Mesh(new THREE.CircleGeometry(0.011, 24), new THREE.MeshPhysicalMaterial({ color: '#10161c', roughness: 0.05, clearcoat: 1 }));
+  glass.rotation.y = Math.PI / 2;
+  glass.position.x = 0.0305;
+  watch.add(face, glass);
+  watch.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis);
+  watch.position.copy(at);
+  watch.traverse((o) => (o.castShadow = true));
+  onBone(bones, BONE.forearmL, watch);
 }
 
 export class Pitcher {
@@ -159,7 +341,7 @@ export class Pitcher {
     this.mesh.add(bones[0]);
     this.mesh.bind(skeleton);
     this.root.add(this.mesh);
-    bones[BONE.head].add(accessories(look));
+    trims(look, bones);
     // Hand attachment points at the palm (index 0 = left hand, 1 = right hand).
     const mk = (bone: number, sx: number) => {
       const o = new THREE.Object3D();

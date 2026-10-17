@@ -103,15 +103,25 @@ function sculpt(pose: Pose): Prim[] {
   P.push(ell([0, 0.965, 0.002], [0.152, 0.024, 0.106], 'belt', B.hips, 0.008));
   P.push(ell([0, 0.9, 0], [0.155, 0.09, 0.105], 'pants', B.hips, 0.04));
   for (const s of [1, -1]) P.push(ell([s * 0.06, 0.865, -0.05], [0.078, 0.085, 0.068], 'pants', B.hips, 0.04));
-  // Neck and head.
+  // Neck and head: cranium, face, jaw and chin, cheekbones, brow, nose, lips, ears.
   P.push(cone([0, 1.43, -0.005], [0, 1.575, 0.008], 0.054, 0.05, 'skin', B.neck, 0.03));
-  P.push(ell([0, 1.665, 0.008], [0.079, 0.102, 0.094], 'skin', B.head, 0.03));
-  P.push(ell([0, 1.605, 0.034], [0.064, 0.058, 0.066], 'skin', B.head, 0.04)); // jaw
-  P.push(ell([0, 1.645, 0.1], [0.013, 0.022, 0.018], 'skin', B.head, 0.012)); // nose
-  P.push(ell([0, 1.69, 0.085], [0.06, 0.016, 0.02], 'skin', B.head, 0.02)); // brow
-  for (const s of [1, -1]) P.push(ell([s * 0.079, 1.648, -0.004], [0.011, 0.027, 0.019], 'skin', B.head, 0.01)); // ears
-  // Short hair below the cap line.
-  P.push(ell([0, 1.665, -0.018], [0.083, 0.088, 0.088], 'hair', B.head, 0.01));
+  P.push(ell([0, 1.69, -0.008], [0.076, 0.083, 0.094], 'skin', B.head, 0.03)); // cranium
+  P.push(ell([0, 1.628, 0.03], [0.062, 0.068, 0.07], 'skin', B.head, 0.04)); // face
+  P.push(ell([0, 1.588, 0.035], [0.054, 0.034, 0.055], 'skin', B.head, 0.04)); // jaw
+  P.push(ell([0, 1.566, 0.07], [0.025, 0.019, 0.02], 'skin', B.head, 0.022)); // chin
+  for (const s of [1, -1]) P.push(ell([s * 0.042, 1.64, 0.062], [0.026, 0.017, 0.022], 'skin', B.head, 0.022)); // cheekbones
+  P.push(ell([0, 1.676, 0.079], [0.05, 0.011, 0.015], 'skin', B.head, 0.02)); // brow ridge
+  P.push(cone([0, 1.668, 0.09], [0, 1.628, 0.108], 0.0075, 0.0105, 'skin', B.head, 0.012)); // nose
+  P.push(ell([0, 1.625, 0.099], [0.016, 0.0095, 0.011], 'skin', B.head, 0.01)); // nostrils
+  P.push(ell([0, 1.599, 0.091], [0.021, 0.0075, 0.009], 'skin', B.head, 0.009)); // upper lip
+  P.push(ell([0, 1.588, 0.088], [0.018, 0.007, 0.009], 'skin', B.head, 0.009)); // lower lip
+  for (const s of [1, -1]) P.push(ell([s * 0.078, 1.648, -0.008], [0.011, 0.028, 0.019], 'skin', B.head, 0.01)); // ears
+  // Short hair: a close crop showing below the cap, sideburns and eyebrows.
+  P.push(ell([0, 1.692, -0.02], [0.08, 0.087, 0.092], 'hair', B.head, 0.008));
+  for (const s of [1, -1]) {
+    P.push(ell([s * 0.072, 1.66, 0.022], [0.009, 0.026, 0.016], 'hair', B.head, 0.008)); // sideburns
+    P.push(ell([s * 0.031, 1.684, 0.085], [0.021, 0.0055, 0.009], 'hair', B.head, 0.004)); // eyebrows
+  }
   // Arms.
   for (const s of [1, -1]) {
     const side = s > 0 ? 'L' : 'R';
@@ -124,10 +134,18 @@ function sculpt(pose: Pose): Prim[] {
     P.push(cone(ua.head, lerp3(ua.head, ua.tail, 0.5), 0.062, 0.058, 'shirt', B[`upperArm${side}`], 0.006)); // sleeve
     P.push(cone(fa.head, fa.tail, 0.041, 0.029, 'skin', B[`forearm${side}`], 0.02));
     P.push(ell(lerp3(fa.head, fa.tail, 0.28), [0.047, 0.07, 0.044], 'skin', B[`forearm${side}`], 0.03)); // forearm muscle
-    const palm = lerp3(hd.head, hd.tail, 0.5);
-    P.push(ell(palm, [0.021, 0.047, 0.042], 'skin', B[`hand${side}`], 0.02));
-    P.push(ell([palm[0] - s * 0.002, palm[1] - 0.045, palm[2] + 0.006], [0.018, 0.026, 0.036], 'skin', B[`hand${side}`], 0.015)); // fingers
-    P.push(ell([palm[0] - s * 0.012, palm[1] + 0.005, palm[2] + 0.04], [0.013, 0.03, 0.014], 'skin', B[`hand${side}`], 0.012)); // thumb
+    // Hand: palm, four relaxed, slightly curled fingers and a thumb. The palm faces the thigh.
+    const wrist = hd.head;
+    P.push(ell(lerp3(hd.head, hd.tail, 0.36), [0.017, 0.043, 0.04], 'skin', B[`hand${side}`], 0.02));
+    const fingers: [number, number][] = [[0.025, 0.07], [0.0085, 0.077], [-0.008, 0.073], [-0.024, 0.059]];
+    for (const [dz, len] of fingers) {
+      const k0: V3 = [wrist[0] + s * 0.004, wrist[1] - 0.076, wrist[2] + dz];
+      const k1: V3 = [k0[0] - s * 0.004, k0[1] - len * 0.55, k0[2] + dz * 0.08];
+      const k2: V3 = [k1[0] - s * 0.016, k1[1] - len * 0.4, k1[2] + dz * 0.05];
+      P.push(cone(k0, k1, 0.0092, 0.008, 'skin', B[`hand${side}`], 0.006));
+      P.push(cone(k1, k2, 0.008, 0.0068, 'skin', B[`hand${side}`], 0.005));
+    }
+    P.push(cone([wrist[0] - s * 0.006, wrist[1] - 0.03, wrist[2] + 0.03], [wrist[0] - s * 0.018, wrist[1] - 0.07, wrist[2] + 0.046], 0.0115, 0.0085, 'skin', B[`hand${side}`], 0.01)); // thumb
   }
   // Legs (or seated legs for spectators).
   for (const s of [1, -1]) {
@@ -143,17 +161,22 @@ function sculpt(pose: Pose): Prim[] {
       ft = { ...ft, head: ankle, tail: [s * 0.115, 0.43, 0.6] };
     }
     P.push(cone(th.head, th.tail, 0.085, 0.057, 'pants', B[`thigh${side}`], 0.03));
-    P.push(cone(sh.head, sh.tail, 0.058, 0.047, 'pants', B[`shin${side}`], 0.02));
+    P.push(ell(lerp3(th.head, th.tail, 0.38), [0.074, 0.12, 0.07], 'pants', B[`thigh${side}`], 0.04)); // thigh
+    P.push(cone(sh.head, sh.tail, 0.058, 0.049, 'pants', B[`shin${side}`], 0.02));
     P.push(ell(lerp3(sh.head, sh.tail, 0.12), [0.06, 0.06, 0.06], 'pants', B[`shin${side}`], 0.03)); // knee
-    // Sneakers.
-    const toe = ft.tail;
-    const heel = ft.head;
-    const fwd = lerp3(heel, toe, 0.5);
-    const lowY = pose === 'seated' ? 0 : -0.04;
-    P.push(ell([heel[0], heel[1] + lowY, heel[2] - 0.005], [0.044, 0.046, 0.055], 'shoe', B[`foot${side}`], 0.03));
-    P.push(ell([fwd[0], fwd[1] + lowY * 0.4, fwd[2]], [0.047, 0.04, 0.095], 'shoe', B[`foot${side}`], 0.03));
-    P.push(ell([toe[0], toe[1] + 0.002, toe[2] - 0.01], [0.042, 0.03, 0.045], 'shoe', B[`foot${side}`], 0.025));
-    P.push(ell([fwd[0], heel[1] + lowY - 0.034, fwd[2] - 0.002], [0.05, 0.012, 0.14], 'sole', B[`foot${side}`], 0.006));
+    P.push(ell(lerp3(sh.head, sh.tail, 0.35), [0.056, 0.09, 0.058], 'pants', B[`shin${side}`], 0.03)); // calf
+    // Sneakers, in a frame at the ankle facing the toe; the hem breaks over the top.
+    const a = sh.tail;
+    const fx = ft.tail[0] - a[0], fz = ft.tail[2] - a[2];
+    const fl = Math.hypot(fx, fz) || 1;
+    const at = (fwd: number, up: number, out = 0): V3 => [a[0] + (fx / fl) * fwd + s * out, a[1] - 0.088 + up, a[2] + (fz / fl) * fwd];
+    const shoe = B[`foot${side}`];
+    P.push(ell(at(-0.006, 0.128), [0.058, 0.034, 0.062], 'pants', B[`shin${side}`], 0.008)); // hem
+    P.push(ell(at(-0.024, 0.06), [0.041, 0.05, 0.05], 'shoe', shoe, 0.03)); // heel counter
+    P.push(cone(at(-0.01, 0.066), at(0.13, 0.04), 0.047, 0.035, 'shoe', shoe, 0.03)); // upper
+    P.push(ell(at(0.14, 0.034, 0.003), [0.044, 0.027, 0.05], 'shoe', shoe, 0.025)); // toe box
+    P.push(ell(at(0.024, 0.086), [0.037, 0.022, 0.046], 'shoe', shoe, 0.025)); // collar and tongue
+    P.push(ell(at(0.062, 0.015, 0.002), [0.05, 0.0145, 0.135], 'sole', shoe, 0.006)); // sole
   }
   return P;
 }
@@ -288,6 +311,26 @@ export function buildBody(pose: Pose = 'standing', cell = 0.0075): BodyMesh {
   const out = geometryFromArrays(buildBodyArrays(pose, cell));
   cache.set(key, out);
   return out;
+}
+
+const fields = new Map<Pose, Field>();
+
+/**
+ * Where a ray from `origin` along `dir` first meets the sculpted body
+ * (bind pose), for fitting trims such as buttons and a buckle to it.
+ */
+export function probeSurface(origin: [number, number, number], dir: [number, number, number], pose: Pose = 'standing'): THREE.Vector3 | null {
+  let F = fields.get(pose);
+  if (!F) fields.set(pose, (F = new Field(sculpt(pose))));
+  const l = Math.hypot(...dir);
+  let t = 0;
+  for (let i = 0; i < 200 && t < 3; i++) {
+    const x = origin[0] + (dir[0] / l) * t, y = origin[1] + (dir[1] / l) * t, z = origin[2] + (dir[2] / l) * t;
+    const d = F.sd(x, y, z);
+    if (d < 0.0002) return new THREE.Vector3(x, y, z);
+    t += Math.max(d * 0.9, 0.0003);
+  }
+  return null;
 }
 
 /** Build the body off the main thread when workers are available. */
