@@ -326,12 +326,12 @@ function lake(group: THREE.Group, q: VenueContext['q']): { update(time: number):
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLakeXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying vec2 vLakeXZ;\nuniform vec3 uSky, uHorizon, uHills;\nuniform vec4 uLake;\nuniform vec2 uDrift;')
-      // Two drifting scales of the same ripples, so the pattern never visibly repeats.
+      // Three drifting, rotated scales of the same ripples, so the pattern never visibly repeats.
       .replace(
         '#include <normal_fragment_maps>',
         THREE.ShaderChunk.normal_fragment_maps.replace(
           'vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;',
-          'vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;\nvec3 mapN2 = texture2D( normalMap, vNormalMapUv * 0.43 + uDrift ).xyz * 2.0 - 1.0;\nmapN = vec3( ( mapN.xy * 0.7 + mapN2.xy * 0.4 ) / ( 1.0 + length( vViewPosition ) * 0.03 ), max( mapN.z, 0.2 ) );',
+          'vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;\nvec3 mapN2 = texture2D( normalMap, vNormalMapUv * 0.43 + uDrift ).xyz * 2.0 - 1.0;\nvec3 mapN3 = texture2D( normalMap, mat2( 0.8, 0.6, -0.6, 0.8 ) * vNormalMapUv * 0.19 - uDrift * 0.7 ).xyz * 2.0 - 1.0;\nmapN = vec3( ( mapN.xy * 0.55 + mapN2.xy * 0.35 + mapN3.xy * 0.3 ) / ( 1.0 + length( vViewPosition ) * 0.03 ), max( mapN.z, 0.2 ) );',
         ),
       )
       // The shared sky probe is replaced by the reflection below (scene.environment ignores envMapIntensity).

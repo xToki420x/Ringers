@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { canvasTex, concreteMaps, fbm, hash, makeCanvas, mix, normalFromHeight, sizeFor, vnoise, type MapSet, type Quality } from './textures';
+import { mulberry32 } from '../physics/errorModel';
 
 /**
  * Procedural surfaces for venue buildings and props: painted lap siding,
@@ -147,13 +148,22 @@ export const waterNormal = (q: Quality): THREE.Texture =>
   memo(`water:${q}`, () => {
     const S = sizeFor(q, 256);
     const h = new Float32Array(S * S);
-    const waves = [[3, 1, 0.3], [-2, 4, 0.22], [5, -3, 0.14], [1, 7, 0.1], [-8, 3, 0.06], [11, 6, 0.04]];
+    // Many wavelets in scattered directions (integer wave numbers keep it tileable),
+    // so no lattice of crossing crests shows across the lake.
+    const rnd = mulberry32(57);
+    const waves: [number, number, number, number][] = [];
+    for (let i = 0; i < 28; i++) {
+      const k = 5 + rnd() * 17, th = rnd() * Math.PI * 2;
+      const a = Math.round(Math.cos(th) * k), b = Math.round(Math.sin(th) * k);
+      if (a === 0 && b === 0) continue;
+      waves.push([a, b, 0.5 / Math.hypot(a, b), rnd() * Math.PI * 2]);
+    }
     for (let y = 0; y < S; y++)
       for (let x = 0; x < S; x++) {
         const u = x / S, v = y / S;
         let s = 0;
-        for (const [a, b, amp] of waves) s += Math.sin((u * a + v * b) * Math.PI * 2 + a * 1.3) * amp;
-        h[y * S + x] = s + fbm(u * 8, v * 8, 8, 4, 31) * 0.35;
+        for (const [a, b, amp, ph] of waves) s += Math.sin((u * a + v * b) * Math.PI * 2 + ph) * amp;
+        h[y * S + x] = s + fbm(u * 12, v * 12, 12, 4, 31) * 0.3;
       }
     return canvasTex(normalFromHeight(h, S, S / 64), false);
   });
