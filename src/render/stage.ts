@@ -12,7 +12,8 @@ import { PLATFORM_X } from '../physics/throwModel';
 import { buildCourt, courtMaterials, COURT_SPACING } from './court';
 import { Environment } from './environment';
 import { Particles } from './particles';
-import { loadBody, type BodyMesh, type Build } from './humanBody';
+import { loadBody } from './humanBody';
+import { loadCharacterModels, type Build } from './characterModels';
 import { castLooks } from './characters';
 import { Pitcher, type PitcherLook } from './pitcher';
 import { SandPit } from './sandPit';
@@ -147,9 +148,8 @@ export class Stage {
   async build(progress: (f: number, label: string) => void, venue: VenueId = DEFAULT_VENUE) {
     const yieldFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
     const q = this.quality;
-    // The pitchers' bodies are sculpted off the main thread while textures build.
-    const [cell, fine] = q === 'high' ? [0.0065, 0.004] : q === 'medium' ? [0.0075, 0.0048] : [0.009, 0.006];
-    const bodiesP = Promise.all([loadBody('standing', cell, { build: 'male', fine }), loadBody('standing', cell, { build: 'female', fine })]);
+    // The pitchers' models load and the crowd's bodies are sculpted off the main thread while textures build.
+    const modelsP = loadCharacterModels();
     const crowdP = loadBody('seated', q === 'high' ? 0.036 : q === 'medium' ? 0.045 : 0.055);
     progress(0.05, 'Raking the pits');
     await yieldFrame();
@@ -187,8 +187,7 @@ export class Stage {
     this.scene.add(this.particles.group);
     progress(0.8, 'Suiting up the pitchers');
     await yieldFrame();
-    const [male, female] = await bodiesP;
-    this.bodies = { male, female };
+    this.models = await modelsP;
     this.setCast(castLooks([{ character: 'cody' }, { build: 'female' }]));
     progress(0.85, 'Lighting the courts');
     await yieldFrame();
@@ -196,7 +195,7 @@ export class Stage {
     progress(1, 'Ready');
   }
 
-  private bodies!: Record<Build, BodyMesh>;
+  private models!: Record<Build, THREE.Group>;
   private readonly pitcherCache = new Map<string, Pitcher>();
 
   /** Dress the two pitchers (built once per look, then reused). */
@@ -205,7 +204,7 @@ export class Stage {
       const key = `${look.id}#${slot}`;
       let p = this.pitcherCache.get(key);
       if (!p) {
-        p = new Pitcher(this.bodies[look.build], look);
+        p = new Pitcher(this.models[look.build], look);
         p.root.visible = false;
         this.pitcherCache.set(key, p);
       }

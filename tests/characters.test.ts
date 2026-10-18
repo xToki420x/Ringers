@@ -28,6 +28,7 @@ describe('characters', () => {
     expect(sanitizeCharacter('sarah')).toBe('sarah');
     expect(sanitizeCharacter('bob')).toBe('cody');
     expect(sanitizeCharacter(undefined)).toBe('cody');
-    expect(CHARACTERS.cody.look.height).toBeGreaterThan(CHARACTERS.sarah.look.height);
+    expect(CHARACTERS.cody.look.build).toBe('male');
+    expect(CHARACTERS.sarah.look.build).toBe('female');
   });
 });

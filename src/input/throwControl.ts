@@ -20,9 +20,9 @@ export type Difficulty = 'amateur' | 'pro' | 'world';
  * that still give a ringer.
  */
 export const DIFFICULTY: Record<Difficulty, { name: string; assist: number; jitter: number; zone: number; band: number; blurb: string }> = {
-  amateur: { name: 'Amateur', assist: 3.5, jitter: 1.4, zone: 0.025, band: 0.03, blurb: 'Forgiving, but ringers still take a clean stroke.' },
-  pro: { name: 'Pro', assist: 5, jitter: 1.8, zone: 0.018, band: 0.022, blurb: 'Tournament feel. Small mistakes cost ringers.' },
-  world: { name: 'World Class', assist: 6.5, jitter: 2.3, zone: 0.014, band: 0.016, blurb: 'A clean stroke and a steady hand, every time.' },
+  amateur: { name: 'Amateur', assist: 3.0, jitter: 1.25, zone: 0.029, band: 0.034, blurb: 'Forgiving, but ringers still take a clean stroke.' },
+  pro: { name: 'Pro', assist: 4.3, jitter: 1.6, zone: 0.021, band: 0.025, blurb: 'Tournament feel. Small mistakes cost ringers.' },
+  world: { name: 'World Class', assist: 5.6, jitter: 2.05, zone: 0.016, band: 0.019, blurb: 'A clean stroke and a steady hand, every time.' },
 };
 
 /** Power-meter value that produces the ideal speed. */

@@ -1,6 +1,6 @@
 import { COLOR_PRESETS, MODELS, factoryLoadout, type Grip, type Loadout, type ModelId, type WeightId } from '../core/equipment';
 import { mulberry32 } from '../physics/errorModel';
-import type { Build } from '../render/humanBody';
+import type { Build } from '../render/characterModels';
 import type { PlayerInfo } from './match';
 
 /** Fictional touring pitchers. */
