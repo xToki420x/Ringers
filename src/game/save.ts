@@ -4,6 +4,7 @@ import type { ScoringMode } from '../core/scoring';
 import type { Difficulty } from '../input/throwControl';
 import type { PitMaterial } from '../physics/physicsWorld';
 import type { Quality } from '../render/textures';
+import { DEFAULT_VENUE, venueOf, type VenueId } from '../render/venues';
 import type { TimeOfDay } from './match';
 import type { Tournament } from './tournament';
 
@@ -42,6 +43,8 @@ export interface QuickPrefs {
   distance: PitchDistance;
   pit: PitMaterial;
   time: TimeOfDay;
+  /** Venue for quick matches, practice, new online rooms and the title screen. */
+  venue: VenueId;
 }
 
 export interface SaveData {
@@ -79,7 +82,7 @@ export function defaults(): SaveData {
       games: 0, wins: 0, shoes: 0, ringers: 0, doubles: 0, inCount: 0, countPoints: 0, bestRingerPct: 0,
       longestRingerStreak: 0, titles: 0, tournaments: 0, practiceShoes: 0, practiceRingers: 0,
     },
-    quick: { opponent: 1, mode: 'cancellation', target: 21, distance: 40, pit: 'sand', time: 'afternoon' },
+    quick: { opponent: 1, mode: 'cancellation', target: 21, distance: 40, pit: 'sand', time: 'afternoon', venue: DEFAULT_VENUE },
     tournament: null,
     seenTutorial: false,
   };
@@ -98,7 +101,8 @@ export function load(): SaveData {
       ...s,
       settings: { ...d.settings, ...(s.settings ?? {}) },
       career: { ...d.career, ...(s.career ?? {}) },
-      quick: { ...d.quick, ...(s.quick ?? {}) },
+      // Saves from before venues (or naming one no longer offered) play at the championship grounds.
+      quick: { ...d.quick, ...(s.quick ?? {}), venue: venueOf(s.quick?.venue) },
       loadout: sanitizeLoadout(s.loadout),
       tournament: s.tournament && s.tournament.version === 1 ? s.tournament : null,
     };

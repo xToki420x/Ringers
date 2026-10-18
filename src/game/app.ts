@@ -8,6 +8,7 @@ import { PHYSICS_DT, PhysicsWorld, stakeZ, type ContactEvent } from '../physics/
 import { DEFAULT_ARC, planRelease, ZERO_ERROR, type DeliveryError, type ReleasePlan } from '../physics/throwModel';
 import { Pitcher } from '../render/pitcher';
 import { Stage } from '../render/stage';
+import { VENUES, venueOf, type VenueId } from '../render/venues';
 import { applyShoeLook, createShoeMesh } from '../render/shoeMesh';
 import { UI, type UIActions } from '../ui/ui';
 import { layout, toggleFullscreen, updateLayout } from '../ui/layout';
@@ -170,7 +171,7 @@ export class App implements UIActions {
   }
 
   async start() {
-    await this.stage.build((f, label) => this.ui.loading(f, label));
+    await this.stage.build((f, label) => this.ui.loading(f, label), this.menuVenue());
     this.applySettings();
     this.placeDecor();
     this.stage.rig.set(this.stage.menuShot(0), true);
@@ -240,6 +241,25 @@ export class App implements UIActions {
     this.stage.scene.add(this.shopShoe);
   }
 
+  /** Show a venue behind the menus (the venue picker previews its choice). */
+  previewVenue(id: VenueId) {
+    this.data.quick.venue = id;
+    this.persist();
+    if (this.phase === 'menu') this.stage.setVenue(id);
+  }
+
+  /** The venue the title screen shows: the player's chosen one. */
+  private menuVenue(): VenueId {
+    return venueOf(this.data.quick.venue);
+  }
+
+  /** Applause scaled to the venue's audience, and the spectators jumping up where there are any. */
+  private crowdCheer(sound: number, jump: number) {
+    const audience = VENUES[this.stage.venue].audience;
+    if (audience > 0) sfx.crowd(sound * audience);
+    this.stage.env.crowd.cheer(jump);
+  }
+
   setMenuBackdrop(kind: 'orbit' | 'shop') {
     this.menuKind = kind;
     if (kind === 'orbit' && this.shopShoe) {
@@ -292,7 +312,7 @@ export class App implements UIActions {
   startQuickMatch() {
     const q = this.data.quick;
     const opp = EXHIBITION_OPPONENTS[q.opponent] ?? EXHIBITION_OPPONENTS[0];
-    const cfg: MatchConfig = { mode: q.mode, target: q.target, distance: q.distance, pit: q.pit, time: q.time };
+    const cfg: MatchConfig = { mode: q.mode, target: q.target, distance: q.distance, pit: q.pit, time: q.time, venue: q.venue };
     this.beginMatch({ kind: 'quick' }, cfg, { ...opp }, `${opp.hometown}`);
   }
 
@@ -303,14 +323,15 @@ export class App implements UIActions {
     if (!g) return;
     const opp = opponentOf(t, g);
     const times: MatchConfig['time'][] = ['morning', 'afternoon', 'afternoon', 'sunset', 'night'];
-    const cfg: MatchConfig = { ...t.config, time: t.stage === 'bracket' ? times[Math.min(4, t.bracketRound)] : times[t.poolRound % 3] };
+    // The World Championship is always played at the championship grounds.
+    const cfg: MatchConfig = { ...t.config, venue: 'championship', time: t.stage === 'bracket' ? times[Math.min(4, t.bracketRound)] : times[t.poolRound % 3] };
     const info: PlayerInfo = { id: opp.id, name: opp.name, isHuman: false, hand: opp.hand, grip: opp.grip, loadout: opp.loadout, rating: opp.rating, hometown: opp.hometown };
     this.beginMatch({ kind: 'tournament', gameId: g.id }, cfg, info, `${stageLabel(t)}`);
   }
 
   newTournament() {
     const q = this.data.quick;
-    const cfg: MatchConfig = { mode: 'countall', target: q.mode === 'countall' ? q.target : 20, distance: 40, pit: 'sand', time: 'afternoon' };
+    const cfg: MatchConfig = { mode: 'countall', target: q.mode === 'countall' ? q.target : 20, distance: 40, pit: 'sand', time: 'afternoon', venue: 'championship' };
     this.data.tournament = createTournament(this.human(), cfg);
     this.data.career.tournaments++;
     this.persist();
@@ -376,7 +397,7 @@ export class App implements UIActions {
 
   async onlineCreate() {
     const q = this.data.quick;
-    const cfg: MatchConfig = { mode: q.mode, target: q.target, distance: q.distance, pit: q.pit, time: q.time };
+    const cfg: MatchConfig = { mode: q.mode, target: q.target, distance: q.distance, pit: q.pit, time: q.time, venue: q.venue };
     this.room = await Room.create(this.member(), cfg, this.roomEvents());
     this.ui.lobby();
   }
@@ -497,7 +518,8 @@ export class App implements UIActions {
   }
 
   startPractice() {
-    const cfg: MatchConfig = { mode: 'cancellation', target: 999, distance: this.data.quick.distance, pit: this.data.quick.pit, time: this.data.quick.time };
+    const q = this.data.quick;
+    const cfg: MatchConfig = { mode: 'cancellation', target: 999, distance: q.distance, pit: q.pit, time: q.time, venue: q.venue };
     this.session = { kind: 'practice' };
     this.players = [this.human(), this.human()];
     this.match = null;
@@ -545,6 +567,7 @@ export class App implements UIActions {
     this.clearDecor();
     this.previewLoadout(null);
     this.physics = new PhysicsWorld(cfg.pit);
+    this.stage.setVenue(venueOf(cfg.venue));
     this.stage.setPitMaterial(cfg.pit);
     if (this.stage.time !== cfg.time) this.stage.setTimeOfDay(cfg.time);
     this.stage.clearShoes();
@@ -568,6 +591,7 @@ export class App implements UIActions {
     this.setPhase('menu');
     this.timeScale = this.timeScaleTarget = 1;
     if (this.stage.time !== 'afternoon') this.stage.setTimeOfDay('afternoon');
+    this.stage.setVenue(this.menuVenue());
     this.stage.rakePits();
     this.placeDecor();
     for (const p of this.stage.pitchers) p.root.visible = false;
@@ -1141,8 +1165,7 @@ export class App implements UIActions {
     this.replayable = !this.isAiTurnFast() && !r.foul && (r.ringer || r.leaner || knocked || shoe.stakeHits > 0) && this.recFrames.length > 30;
     if (this.replayable) this.ui.replayButton(() => this.startReplay());
     if (cheer > 0) {
-      sfx.crowd(cheer);
-      this.stage.env.crowd.cheer(cheer);
+      this.crowdCheer(cheer, cheer);
     }
     // Practice tallies & streaks.
     if (isHuman && !r.foul) {
@@ -1299,8 +1322,7 @@ export class App implements UIActions {
       });
       return;
     }
-    sfx.crowd(m.winner === 0 ? 1.4 : 0.6);
-    this.stage.env.crowd.cheer(m.winner === 0 ? 1.4 : 0.5);
+    this.crowdCheer(m.winner === 0 ? 1.4 : 0.6, m.winner === 0 ? 1.4 : 0.5);
     let extra: string | undefined;
     const s = this.session;
     if (s?.kind === 'tournament' && this.data.tournament) {

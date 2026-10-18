@@ -743,6 +743,20 @@ body {
   font: 500 10px var(--body);
   color: var(--muted);
 }
+.card.venue {
+  width: 184px;
+}
+.card.venue .courts {
+  margin-top: 4px;
+  font: 600 10px var(--body);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.card.venue .sub {
+  margin-top: 6px;
+  line-height: 1.4;
+}
 .meter {
   height: 6px;
   background: rgba(255, 255, 255, 0.08);

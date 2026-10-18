@@ -19,6 +19,7 @@ import { createShoeMesh } from './shoeMesh';
 import { concreteMaps, woodMaps, type MapSet, type Quality } from './textures';
 import { sandMaps } from './sandTextures';
 import { grassMaps } from './lawnTextures';
+import { courtSlots, DEFAULT_VENUE, type VenueId } from './venues';
 
 /**
  * The 3D world: renderer, scene graph, court, deformable pits, shoes,
@@ -110,6 +111,8 @@ export class Stage {
   envMap: THREE.Texture | null = null;
   private maps: { sand: MapSet; clay: MapSet; grass: MapSet } | null = null;
   pitKind: PitMaterial = 'sand';
+  /** Every court the stage can show, by slot (multiples of the court spacing from the playing court). */
+  private courts = new Map<number, THREE.Group>();
   /** Shoe held in first-person view. */
   viewShoe: THREE.Mesh | null = null;
   private viewShoeLoadout = '';
@@ -139,8 +142,8 @@ export class Stage {
     this.resize();
   }
 
-  /** Build all geometry and textures. Yields between heavy steps so a loading bar can update. */
-  async build(progress: (f: number, label: string) => void) {
+  /** Build all geometry and textures, opening at `venue`. Yields between heavy steps so a loading bar can update. */
+  async build(progress: (f: number, label: string) => void, venue: VenueId = DEFAULT_VENUE) {
     const yieldFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
     const q = this.quality;
     // The pitchers' bodies are sculpted off the main thread while textures build.
@@ -167,15 +170,17 @@ export class Stage {
     for (let c = -2; c <= 2; c++) {
       const court = buildCourt(mats, c * COURT_SPACING, c === 0, c === 0 || Math.abs(c) === 1);
       this.scene.add(court.group);
+      this.courts.set(c, court.group);
     }
     this.pits = [
       new SandPit(0, stakeZ(0), sand, 'sand', this.pitCell),
       new SandPit(1, stakeZ(1), sand, 'sand', this.pitCell),
     ];
     this.scene.add(this.pits[0].mesh, this.pits[1].mesh);
-    progress(0.72, 'Filling the bleachers');
+    progress(0.72, 'Setting the scene');
     await yieldFrame();
     this.env = new Environment(this.scene, grass, q, await crowdP);
+    this.setVenue(venue);
     this.particles = new Particles(new THREE.Color(0.77, 0.64, 0.46));
     this.scene.add(this.particles.group);
     progress(0.8, 'Suiting up the pitchers');
@@ -245,6 +250,17 @@ export class Stage {
     this.scene.environment = this.envMap;
     this.scene.environmentIntensity = t === 'night' ? 0.9 : 1.0;
     pmrem.dispose();
+  }
+
+  /** Move to another venue: its scenery, and only as many courts as it has. */
+  setVenue(id: VenueId) {
+    const slots = courtSlots(id);
+    for (const [c, g] of this.courts) g.visible = slots.includes(c);
+    this.env.setVenue(id);
+  }
+
+  get venue(): VenueId {
+    return this.env.venue ?? DEFAULT_VENUE;
   }
 
   get time(): TimeOfDay {

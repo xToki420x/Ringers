@@ -12,6 +12,7 @@ import { h, icons, meter, seg, svg, toggle, topbar } from './dom';
 import { canFullscreen, layout, tapWord, toggleFullscreen } from './layout';
 import { MAX_MEMBERS, normalizeCode, validCode, type Room, type RoomState } from '../net/room';
 import type { MatchConfig } from '../game/match';
+import { VENUE_IDS, VENUES, venueOf, type VenueId } from '../render/venues';
 
 export interface UIActions {
   data: SaveData;
@@ -32,6 +33,7 @@ export interface UIActions {
   toggleZoom(): boolean;
   pause(): void;
   setMenuBackdrop(kind: 'orbit' | 'shop'): void;
+  previewVenue(id: VenueId): void;
   room: Room | null;
   inviteCode: string;
   onlineCreate(): Promise<void>;
@@ -238,6 +240,7 @@ export class UI {
         { class: 'screen dim' },
         topbar('Quick Match', () => { this.a.tap('back'); this.title(); }),
         h('div', { class: 'section' }, h('div', { class: 'label' }, 'Opponent'), cards),
+        h('div', { class: 'section' }, h('div', { class: 'label' }, 'Venue'), this.venuePicker(q.venue, (v) => this.a.previewVenue(v))),
         h('div', { class: 'section' }, h('div', { class: 'label' }, 'Game'), seg(formats, fmt, (v) => {
           q.mode = v[0] === 'c' ? 'cancellation' : 'countall';
           q.target = Number(v.slice(1));
@@ -260,6 +263,26 @@ export class UI {
         h('button', { class: 'btn primary center', style: 'margin-top:auto', onclick: () => { this.a.tap('confirm'); this.a.persist(); this.a.startQuickMatch(); } }, svg(icons.play), 'Pitch'),
       ),
     );
+  }
+
+  /** Venue cards: name, number of courts and a line about the place. */
+  private venuePicker(value: VenueId, pick: (v: VenueId) => void): HTMLElement {
+    const cards = h('div', { class: 'cards venues' });
+    const render = (on: VenueId) =>
+      cards.replaceChildren(
+        ...VENUE_IDS.map((id) => {
+          const v = VENUES[id];
+          return h(
+            'div',
+            { class: `card venue${on === id ? ' on' : ''}`, onclick: () => { this.a.tap(); pick(id); render(id); } },
+            h('div', { class: 'nm' }, v.name),
+            h('div', { class: 'courts' }, v.courts === 1 ? '1 court' : `${v.courts} courts`),
+            h('div', { class: 'sub' }, v.blurb),
+          );
+        }),
+      );
+    render(value);
+    return cards;
   }
 
   private gripSection(): HTMLElement {
@@ -571,10 +594,12 @@ export class UI {
       );
     })));
     const cfg = st.cfg;
-    const fmtLabel = `${cfg.mode === 'cancellation' ? `Cancellation to ${cfg.target}` : `Count-all, ${cfg.target} shoes`} · ${cfg.distance} ft · ${cfg.pit === 'sand' ? 'sand' : 'blue clay'} · ${cfg.time}`;
+    const fmtLabel = `${VENUES[venueOf(cfg.venue)].name} · ${cfg.mode === 'cancellation' ? `Cancellation to ${cfg.target}` : `Count-all, ${cfg.target} shoes`} · ${cfg.distance} ft · ${cfg.pit === 'sand' ? 'sand' : 'blue clay'} · ${cfg.time}`;
     if (r.isHost && !playing) {
       const set = (patch: Partial<MatchConfig>) => this.a.onlineConfig({ ...cfg, ...patch });
       out.push(
+        h('div', { class: 'label', style: 'margin-top:14px' }, 'Venue'),
+        this.venuePicker(venueOf(cfg.venue), (v) => set({ venue: v })),
         h('div', { class: 'label', style: 'margin-top:14px' }, 'Game'),
         seg([
           { value: 'c21', label: 'To 21', sub: 'Cancellation' },
