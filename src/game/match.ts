@@ -1,3 +1,4 @@
+import type { CharacterId } from '../render/characters';
 import type { PitchDistance } from '../core/constants';
 import type { Grip, Loadout } from '../core/equipment';
 import { scoreInning, type InningScore, type ScoringMode, type ShoeResult } from '../core/scoring';
@@ -16,6 +17,8 @@ export interface PlayerInfo {
   /** AI: target ringer percentage. */
   rating?: number;
   hometown?: string;
+  /** The character this player pitches as (people); AI pitchers are cast by build. */
+  character?: CharacterId;
 }
 
 export type TimeOfDay = 'morning' | 'afternoon' | 'sunset' | 'night';

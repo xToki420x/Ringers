@@ -1,5 +1,6 @@
 import { COLOR_PRESETS, MODELS, factoryLoadout, type Grip, type Loadout, type ModelId, type WeightId } from '../core/equipment';
 import { mulberry32 } from '../physics/errorModel';
+import type { Build } from '../render/humanBody';
 import type { PlayerInfo } from './match';
 
 /** Fictional touring pitchers. */
@@ -9,6 +10,17 @@ const FIRST = [
   'Lucille', 'Jed', 'Hattie', 'Wade', 'Iris', 'Boone', 'Edna', 'Cyrus', 'Mabel', 'Zeke', 'Velma', 'Luther', 'Dot', 'Ray',
   'Inez', 'Elmer', 'Rosa', 'Abe', 'Coral', 'Ty', 'Lena', 'Nash', 'Wren', 'Jo', 'Mack', 'Tess', 'Dean', 'Hazel', 'Carl',
 ];
+const FEMALE = new Set([
+  'June', 'Darlene', 'Marge', 'Wanda', 'Opal', 'Nell', 'Della', 'Ruth', 'Ida', 'Faye', 'Pearl', 'Bonnie', 'Lucille', 'Hattie',
+  'Iris', 'Edna', 'Mabel', 'Velma', 'Dot', 'Inez', 'Rosa', 'Coral', 'Lena', 'Wren', 'Jo', 'Tess', 'Hazel', 'Sarah',
+]);
+
+/** Which body a pitcher of this name is drawn with (by first name; unknown names get the male build). */
+export function buildOfName(name: string): Build {
+  const first = name.replace(/[“"][^”"]*[”"]\s*/g, '').trim().split(/\s+/)[0] ?? '';
+  return FEMALE.has(first) ? 'female' : 'male';
+}
+
 const LAST = [
   'Hollister', 'McCready', 'Barlow', 'Swenson', 'Tate', 'Pruitt', 'Lindqvist', 'Oakes', 'Delaney', 'Gentry', 'Haskins',
   'Moreau', 'Pickett', 'Rasmussen', 'Stroud', 'Voss', 'Whitlock', 'Yoder', 'Abernathy', 'Bramlett', 'Coker', 'Dunlap',

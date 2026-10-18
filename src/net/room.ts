@@ -1,3 +1,4 @@
+import type { CharacterId } from '../render/characters';
 import type { Grip, Loadout } from '../core/equipment';
 import type { MatchConfig } from '../game/match';
 import type { DeliveryError } from '../physics/throwModel';
@@ -32,6 +33,7 @@ export interface Member {
   hand: 1 | -1;
   grip: Grip;
   loadout: Loadout;
+  character?: CharacterId;
 }
 
 export interface RoomMatch {

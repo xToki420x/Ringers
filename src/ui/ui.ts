@@ -1,3 +1,4 @@
+import { CHARACTERS, characterIds, type CharacterId } from '../render/characters';
 import * as THREE from 'three';
 import { COLOR_PRESETS, FINISHES, GRIPS, MODELS, WEIGHTS, hsvToCss, sameLoadout, shoeRatings, shoeTraits, type FinishId, type Grip, type Hsv, type Loadout, type ModelId, type WeightId } from '../core/equipment';
 import { shoeGeometry } from '../core/shoeShape';
@@ -670,6 +671,11 @@ export class UI {
     const save = () => { this.a.applySettings(); this.a.persist(); };
     this.mount('settings', h('div', { class: 'screen dim' },
       topbar('Settings', () => { this.a.tap('back'); back(); }),
+      h('div', { class: 'section' }, h('div', { class: 'label' }, 'Your pitcher'), seg(
+        characterIds.map((k) => ({ value: k, label: `${CHARACTERS[k].name.split(' ')[0]} “${CHARACTERS[k].nickname}” ${CHARACTERS[k].name.split(' ')[1]}`, sub: CHARACTERS[k].blurb })),
+        s.character,
+        (v) => { s.character = v as CharacterId; save(); },
+      )),
       h('div', { class: 'section' }, h('div', { class: 'label' }, 'Difficulty'), seg(
         (Object.keys(DIFFICULTY) as Difficulty[]).map((k) => ({ value: k, label: DIFFICULTY[k].name, sub: DIFFICULTY[k].blurb })),
         s.difficulty,

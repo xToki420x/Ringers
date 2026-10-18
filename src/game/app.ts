@@ -6,6 +6,7 @@ import { haptic, sfx } from '../audio/sfx';
 import { ThrowControl, type Gesture } from '../input/throwControl';
 import { PHYSICS_DT, PhysicsWorld, stakeZ, type ContactEvent } from '../physics/physicsWorld';
 import { DEFAULT_ARC, planRelease, ZERO_ERROR, type DeliveryError, type ReleasePlan } from '../physics/throwModel';
+import { castLooks, sanitizeCharacter } from '../render/characters';
 import { Pitcher } from '../render/pitcher';
 import { Stage } from '../render/stage';
 import { VENUES, venueOf, type VenueId } from '../render/venues';
@@ -14,7 +15,7 @@ import { UI, type UIActions } from '../ui/ui';
 import { layout, toggleFullscreen, updateLayout } from '../ui/layout';
 import { aiDeliveryError } from './ai';
 import { Match, ringerPct, type MatchConfig, type PlayerInfo } from './match';
-import { EXHIBITION_OPPONENTS } from './roster';
+import { buildOfName, EXHIBITION_OPPONENTS } from './roster';
 import { load, resetSave, save, type SaveData } from './save';
 import { advance, createTournament, HUMAN_ID, nextHumanGame, opponentOf, recordHumanGame, stageLabel } from './tournament';
 import { Room, type Member, type RoomState, type SnapMsg, type ThrowMsg } from '../net/room';
@@ -376,7 +377,7 @@ export class App implements UIActions {
   private lastOnlineMid = '';
 
   private member(): Member {
-    return { id: this.clientId, name: this.data.name, hand: this.data.settings.hand, grip: this.data.grip, loadout: this.data.loadout };
+    return { id: this.clientId, name: this.data.name, hand: this.data.settings.hand, grip: this.data.grip, loadout: this.data.loadout, character: this.data.settings.character };
   }
 
   private roomEvents() {
@@ -448,7 +449,7 @@ export class App implements UIActions {
     const order: [string, string] = local === 1 ? [ids[1], ids[0]] : [ids[0], ids[1]];
     const info = (id: string): PlayerInfo => {
       const mb = r.member(id);
-      return { id, name: mb?.name ?? 'Pitcher', isHuman: id === me, remote: id !== me, hand: mb?.hand ?? 1, grip: mb?.grip ?? 'flip', loadout: sanitizeLoadout(mb?.loadout) };
+      return { id, name: mb?.name ?? 'Pitcher', isHuman: id === me, remote: id !== me, hand: mb?.hand ?? 1, grip: mb?.grip ?? 'flip', loadout: sanitizeLoadout(mb?.loadout), character: mb?.character ? sanitizeCharacter(mb.character) : undefined };
     };
     this.lastOnlineMid = st.match!.id;
     this.ui.clearScreens();
@@ -522,6 +523,7 @@ export class App implements UIActions {
     const cfg: MatchConfig = { mode: 'cancellation', target: 999, distance: q.distance, pit: q.pit, time: q.time, venue: q.venue };
     this.session = { kind: 'practice' };
     this.players = [this.human(), this.human()];
+    this.castPitchers();
     this.match = null;
     this.practice = { shoes: 0, ringers: 0, inCount: 0, streak: 0, pairs: 0, pitchFrom: 0 };
     this.prepareCourt(cfg);
@@ -535,8 +537,15 @@ export class App implements UIActions {
   }
   private practiceCfg: MatchConfig | null = null;
 
+  /** Dress the stage's two pitchers for the current players. */
+  private castPitchers() {
+    const p = this.players!;
+    const who = (i: 0 | 1) => ({ character: p[i].character, build: buildOfName(p[i].name) });
+    this.stage.setCast(castLooks([who(0), who(1)]));
+  }
+
   private human(): PlayerInfo {
-    return { id: HUMAN_ID, name: this.data.name, isHuman: true, hand: this.data.settings.hand, grip: this.data.grip, loadout: this.data.loadout };
+    return { id: HUMAN_ID, name: this.data.name, isHuman: true, hand: this.data.settings.hand, grip: this.data.grip, loadout: this.data.loadout, character: this.data.settings.character };
   }
 
   private beginMatch(session: Session, cfg: MatchConfig, opp: PlayerInfo, subtitle: string) {
@@ -550,6 +559,7 @@ export class App implements UIActions {
   private startMatchWith(session: Session, cfg: MatchConfig, players: [PlayerInfo, PlayerInfo], first: 0 | 1, subtitle: string, subs?: [string, string]) {
     this.session = session;
     this.players = players;
+    this.castPitchers();
     this.match = new Match(cfg, this.players, first);
     this.ringerStreak = 0;
     this.prepareCourt(cfg);

@@ -3,6 +3,7 @@ import { DEFAULT_LOADOUT, sanitizeLoadout, type Grip, type Loadout } from '../co
 import type { ScoringMode } from '../core/scoring';
 import type { Difficulty } from '../input/throwControl';
 import type { PitMaterial } from '../physics/physicsWorld';
+import { sanitizeCharacter, type CharacterId } from '../render/characters';
 import type { Quality } from '../render/textures';
 import { DEFAULT_VENUE, venueOf, type VenueId } from '../render/venues';
 import type { TimeOfDay } from './match';
@@ -18,6 +19,8 @@ export interface Settings {
   metric: boolean;
   slowmo: boolean;
   fastAi: boolean;
+  /** The pitcher you play as. */
+  character: CharacterId;
 }
 
 export interface Career {
@@ -75,7 +78,7 @@ export function defaults(): SaveData {
   return {
     version: 1,
     name: 'You',
-    settings: { volume: 0.8, haptics: true, hand: 1, difficulty: 'amateur', guides: true, quality: defaultQuality(), metric: false, slowmo: true, fastAi: false },
+    settings: { volume: 0.8, haptics: true, hand: 1, difficulty: 'amateur', guides: true, quality: defaultQuality(), metric: false, slowmo: true, fastAi: false, character: 'cody' },
     loadout: { ...DEFAULT_LOADOUT, color: [...DEFAULT_LOADOUT.color] },
     grip: 'flip',
     career: {
@@ -99,7 +102,7 @@ export function load(): SaveData {
     return {
       ...d,
       ...s,
-      settings: { ...d.settings, ...(s.settings ?? {}) },
+      settings: { ...d.settings, ...(s.settings ?? {}), character: sanitizeCharacter(s.settings?.character) },
       career: { ...d.career, ...(s.career ?? {}) },
       // Saves from before venues (or naming one no longer offered) play at the championship grounds.
       quick: { ...d.quick, ...(s.quick ?? {}), venue: venueOf(s.quick?.venue) },

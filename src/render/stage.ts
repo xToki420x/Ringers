@@ -12,8 +12,9 @@ import { PLATFORM_X } from '../physics/throwModel';
 import { buildCourt, courtMaterials, COURT_SPACING } from './court';
 import { Environment } from './environment';
 import { Particles } from './particles';
-import { loadBody } from './humanBody';
-import { LOOKS, Pitcher } from './pitcher';
+import { loadBody, type BodyMesh, type Build } from './humanBody';
+import { castLooks } from './characters';
+import { Pitcher, type PitcherLook } from './pitcher';
 import { SandPit } from './sandPit';
 import { createShoeMesh } from './shoeMesh';
 import { concreteMaps, woodMaps, type MapSet, type Quality } from './textures';
@@ -147,7 +148,8 @@ export class Stage {
     const yieldFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
     const q = this.quality;
     // The pitchers' bodies are sculpted off the main thread while textures build.
-    const bodyP = loadBody('standing', q === 'high' ? 0.0065 : q === 'medium' ? 0.0075 : 0.009);
+    const [cell, fine] = q === 'high' ? [0.0065, 0.004] : q === 'medium' ? [0.0075, 0.0048] : [0.009, 0.006];
+    const bodiesP = Promise.all([loadBody('standing', cell, { build: 'male', fine }), loadBody('standing', cell, { build: 'female', fine })]);
     const crowdP = loadBody('seated', q === 'high' ? 0.036 : q === 'medium' ? 0.045 : 0.055);
     progress(0.05, 'Raking the pits');
     await yieldFrame();
@@ -185,16 +187,34 @@ export class Stage {
     this.scene.add(this.particles.group);
     progress(0.8, 'Suiting up the pitchers');
     await yieldFrame();
-    const body = await bodyP;
-    this.pitchers = [new Pitcher(body, LOOKS[0]), new Pitcher(body, LOOKS[1])];
-    for (const p of this.pitchers) {
-      p.root.visible = false;
-      this.scene.add(p.root);
-    }
+    const [male, female] = await bodiesP;
+    this.bodies = { male, female };
+    this.setCast(castLooks([{ character: 'cody' }, { build: 'female' }]));
     progress(0.85, 'Lighting the courts');
     await yieldFrame();
     this.setTimeOfDay('afternoon');
     progress(1, 'Ready');
+  }
+
+  private bodies!: Record<Build, BodyMesh>;
+  private readonly pitcherCache = new Map<string, Pitcher>();
+
+  /** Dress the two pitchers (built once per look, then reused). */
+  setCast(looks: [PitcherLook, PitcherLook]) {
+    const get = (look: PitcherLook, slot: number) => {
+      const key = `${look.id}#${slot}`;
+      let p = this.pitcherCache.get(key);
+      if (!p) {
+        p = new Pitcher(this.bodies[look.build], look);
+        p.root.visible = false;
+        this.pitcherCache.set(key, p);
+      }
+      return p;
+    };
+    const next: [Pitcher, Pitcher] = [get(looks[0], 0), get(looks[1], 1)];
+    for (const p of this.pitchers ?? []) if (!next.includes(p)) this.scene.remove(p.root);
+    for (const p of next) if (!p.root.parent) this.scene.add(p.root);
+    this.pitchers = next;
   }
 
   setTimeOfDay(t: TimeOfDay) {
